@@ -47,6 +47,16 @@ const App: React.FC = () => {
         if (players.length < MAX_PLAYERS && !players.find(p => p.id === message.payload.id)) {
           const newPlayer: Player = { id: message.payload.id, name: message.payload.name, lastSeenLogIndex: 0 };
           setPlayers(p => [...p, newPlayer]);
+
+          if (gamePhase === 'play') {
+            dispatch({
+                type: 'ADD_LOG_ENTRY',
+                payload: {
+                    type: 'stat_change',
+                    text: `(${message.payload.name}) Has Joined the Game!`
+                }
+            });
+          }
         }
       } else if (message.type === 'DISPATCH_ACTION') {
         dispatch(message.payload.action);
@@ -83,7 +93,7 @@ const App: React.FC = () => {
         }
     });
 
-  }, [gameMode, gameId, players, currentPlayerIndex]); // Rerun if players list changes to have the latest closure
+  }, [gameMode, gameId, players, currentPlayerIndex, gamePhase]); // Rerun if players list changes to have the latest closure
 
   // GM: Broadcast state changes
   useEffect(() => {
@@ -110,8 +120,8 @@ const App: React.FC = () => {
         
         const { gameData, players, currentPlayerIndex, gamePhase } = message.payload;
         dispatch({ type: 'SET_GAME_DATA', payload: gameData });
-        setPlayers(players);
-        setCurrentPlayerIndex(currentPlayerIndex);
+        setPlayers(players || []); // Guard against undefined players from Firebase
+        setCurrentPlayerIndex(currentPlayerIndex || 0); // Guard as well
         setGamePhase(gamePhase);
       }
     };
@@ -263,6 +273,20 @@ const App: React.FC = () => {
                 <p>Game ID: {gameId}</p>
             </div>
         )
+    }
+
+    if (gameMode === 'online-player' && gamePhase === 'setup') {
+        return (
+            <div className="bg-secondary p-8 rounded-lg text-center">
+                <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-highlight mx-auto mb-4"></div>
+                <h2 className="text-2xl font-bold text-highlight mb-4">Waiting for Host to Start...</h2>
+                <p className="mb-4">You have successfully joined the game. The host can see you in the lobby.</p>
+                <div className="bg-primary p-4 rounded-lg">
+                    <p className="text-lg text-gray-400 mb-2">Game ID:</p>
+                    <p className="text-2xl font-mono text-white">{gameId}</p>
+                </div>
+            </div>
+        );
     }
 
     switch(gamePhase) {
