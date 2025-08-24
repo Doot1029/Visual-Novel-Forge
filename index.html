@@ -226,8 +226,6 @@ const signInAnonymouslyIfNeeded = () => {
             console.error("Auth state observer error:", error);
             reject(error);
         });
-    }).finally(() => {
-        authPromise = null;
     });
 
     return authPromise;
