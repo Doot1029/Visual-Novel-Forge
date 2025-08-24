@@ -1,0 +1,5 @@
+{
+  "name": "Visual Novel Forge",
+  "description": "A multiplayer collaborative visual novel game. A host sets up the world and characters, and up to 5 players take turns writing the story, choosing which character to speak as in each turn.",
+  "requestFramePermissions": []
+}

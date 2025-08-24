@@ -1,0 +1,303 @@
+import React, { useState, useReducer, useCallback, useEffect, useRef } from 'react';
+import { GameData, Player, GamePhase, Character, Asset, GameMode } from './types';
+import { gameReducer, Action } from './state/reducer';
+import { INITIAL_GAME_DATA } from './constants';
+import SetupView from './components/SetupView';
+import GameView from './components/GameView';
+import GMMenu from './components/GMMenu';
+import * as network from './services/networkService';
+import { MAX_PLAYERS } from './constants';
+import { signInAnonymouslyIfNeeded } from './services/firebase';
+
+
+const App: React.FC = () => {
+  const [gameData, dispatch] = useReducer(gameReducer, INITIAL_GAME_DATA);
+  const [players, setPlayers] = useState<Player[]>([{ id: `p-1`, name: 'Player 1', lastSeenLogIndex: 0 }]);
+  const [gamePhase, setGamePhase] = useState<GamePhase>('setup');
+  const [currentPlayerIndex, setCurrentPlayerIndex] = useState(0);
+  const [isGmMenuOpen, setIsGmMenuOpen] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
+  const [isAuthenticating, setIsAuthenticating] = useState(true);
+
+  const [gameMode, setGameMode] = useState<GameMode>('local');
+  const [gameId, setGameId] = useState<string | null>(null);
+  const [myPlayerId, setMyPlayerId] = useState<string | null>(null);
+  const [connectionStatus, setConnectionStatus] = useState<'disconnected' | 'connecting' | 'connected'>('disconnected');
+  const [sessionId] = useState(() => `session-${Date.now()}-${Math.random()}`);
+  const connectionTimeoutRef = useRef<number | null>(null);
+
+  // --- Firebase Auth ---
+  useEffect(() => {
+    signInAnonymouslyIfNeeded()
+      .then(() => setIsAuthenticating(false))
+      .catch(() => {
+        // Error is already alerted in the service. We can just stop loading.
+        setIsAuthenticating(false);
+      });
+  }, []);
+  
+  // --- Online Multiplayer Logic ---
+
+  // GM: Listen for messages from players
+  useEffect(() => {
+    if (gameMode !== 'online-gm' || !gameId) return;
+
+    network.onMessage((message) => {
+      if (message.type === 'PLAYER_JOIN_REQUEST') {
+        if (players.length < MAX_PLAYERS && !players.find(p => p.id === message.payload.id)) {
+          const newPlayer: Player = { id: message.payload.id, name: message.payload.name, lastSeenLogIndex: 0 };
+          setPlayers(p => [...p, newPlayer]);
+        }
+      } else if (message.type === 'DISPATCH_ACTION') {
+        dispatch(message.payload.action);
+      } else if (message.type === 'END_TURN') {
+        handleEndTurn();
+      }
+    });
+
+  }, [gameMode, gameId, players]); // Rerun if players list changes to have the latest closure
+
+  // GM: Broadcast state changes
+  useEffect(() => {
+    if (gameMode !== 'online-gm') return;
+    network.sendMessage({ 
+      type: 'GAME_STATE_SYNC', 
+      payload: { gameData, players, currentPlayerIndex, gamePhase } 
+    });
+  }, [gameMode, gameData, players, currentPlayerIndex, gamePhase]);
+
+  // Player: Listen for state sync from GM
+  useEffect(() => {
+    if (gameMode !== 'online-player') return;
+
+    const handleMessage = (message: network.NetworkMessage) => {
+      if (message.type === 'GAME_STATE_SYNC') {
+        // We got a message from the GM, we are connected.
+        if (connectionTimeoutRef.current) {
+          clearTimeout(connectionTimeoutRef.current);
+          connectionTimeoutRef.current = null;
+        }
+
+        setConnectionStatus('connected');
+        
+        const { gameData, players, currentPlayerIndex, gamePhase } = message.payload;
+        dispatch({ type: 'SET_GAME_DATA', payload: gameData });
+        setPlayers(players);
+        setCurrentPlayerIndex(currentPlayerIndex);
+        setGamePhase(gamePhase);
+      }
+    };
+    
+    network.onMessage(handleMessage);
+
+  }, [gameMode]);
+
+  // --- Game Actions ---
+
+  const onlineDispatch = (action: Action) => {
+    if (gameMode === 'online-player') {
+      network.sendMessage({ type: 'DISPATCH_ACTION', payload: { action } });
+    } else {
+      dispatch(action);
+    }
+  };
+
+  const startLocalGame = async () => {
+    setGameMode('local');
+    await startGame();
+  };
+
+  const hostOnlineGame = () => {
+    const newGameId = String(Math.floor(100000 + Math.random() * 900000));
+    setGameId(newGameId);
+    setGameMode('online-gm');
+    setPlayers([]); // Start with no players for GM
+    network.createGameChannel(newGameId);
+    setMyPlayerId(null); // GM is not a player
+  };
+
+  const joinOnlineGameAsPlayer = (id: string, name: string) => {
+    setGameId(id);
+    setGameMode('online-player');
+    const playerId = sessionId;
+    setMyPlayerId(playerId);
+    network.joinGameChannel(id);
+    
+    setConnectionStatus('connecting');
+    network.sendMessage({ type: 'PLAYER_JOIN_REQUEST', payload: { name, id: playerId } });
+
+    if (connectionTimeoutRef.current) {
+      clearTimeout(connectionTimeoutRef.current);
+    }
+
+    connectionTimeoutRef.current = window.setTimeout(() => {
+      alert("Failed to connect to the game. Please check the Game ID and ensure the host is waiting for players.");
+      window.location.reload();
+    }, 10000);
+  };
+
+  const startGame = async () => {
+    if (players.length < 1 && gameMode !== 'online-gm') { // GM can start with 0 players, but we'll disable the button.
+      alert('You need at least one player to start.');
+      return;
+    }
+    if (players.some(p => !p.name.trim())) {
+      alert('All players must have a name before starting.');
+      return;
+    }
+    if (gameData.characters.length <= 1) {
+      alert('You must create at least one character besides the Narrator.');
+      return;
+    }
+
+    setIsLoading(true);
+    
+    const publishedAssets = gameData.assets.filter(a => a.isPublished);
+    const preloadPromises = publishedAssets.map(asset => {
+        return new Promise<void>((resolve) => {
+            const img = new Image();
+            img.src = asset.url;
+            img.onload = () => resolve();
+            img.onerror = () => {
+                console.warn(`Failed to preload asset: ${asset.name} (${asset.url})`);
+                resolve();
+            };
+        });
+    });
+
+    try {
+        await Promise.all(preloadPromises);
+    } catch (error) {
+        console.error("Asset preloading failed:", error);
+    }
+
+    setIsLoading(false);
+    setGamePhase('play');
+    setCurrentPlayerIndex(0);
+  };
+  
+  const handleEndTurn = () => {
+    if (gameMode === 'online-player') {
+      network.sendMessage({ type: 'END_TURN', payload: {} });
+      return;
+    }
+    
+    // Local/GM logic
+    const newPlayers = [...players];
+    if (newPlayers[currentPlayerIndex]) {
+        newPlayers[currentPlayerIndex].lastSeenLogIndex = gameData.storyLog.length;
+        setPlayers(newPlayers);
+    }
+    
+    setCurrentPlayerIndex(prev => (prev + 1) % (players.length || 1));
+  };
+
+  const returnToSetup = () => {
+    window.location.reload();
+  }
+
+  const renderGamePhase = () => {
+    if (gameMode === 'online-player' && connectionStatus === 'connecting') {
+        return (
+            <div className="bg-secondary p-6 rounded-lg text-center">
+                <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-highlight mx-auto mb-4"></div>
+                <h2 className="text-2xl text-highlight mb-4">Connecting to game...</h2>
+                <p>Game ID: {gameId}</p>
+            </div>
+        )
+    }
+
+    switch(gamePhase) {
+      case 'setup':
+        return (
+          <SetupView
+            gameData={gameData}
+            dispatch={dispatch}
+            players={players}
+            setPlayers={setPlayers}
+            onStartLocalGame={startLocalGame}
+            onHostOnlineGame={hostOnlineGame}
+            onJoinOnlineGame={joinOnlineGameAsPlayer}
+            gameId={gameId}
+            onStartGameForEveryone={startGame}
+          />
+        );
+      case 'play':
+        if (players.length === 0 && gameMode !== 'online-gm') {
+            return (
+                <div className="text-center p-8 bg-secondary rounded-lg">
+                    <h2 className="text-2xl text-highlight mb-4">All players have left the game.</h2>
+                    <button onClick={returnToSetup} className="px-4 py-2 bg-accent hover:bg-highlight text-white rounded-md transition-colors">
+                      Return to Setup
+                    </button>
+                </div>
+            )
+        }
+        return (
+          <GameView 
+            gameData={gameData}
+            dispatch={onlineDispatch}
+            players={players}
+            currentPlayer={players[currentPlayerIndex]}
+            currentPlayerIndex={currentPlayerIndex}
+            onEndTurn={handleEndTurn}
+            gameMode={gameMode}
+            myPlayerId={myPlayerId}
+          />
+        );
+    }
+  }
+
+  if (isAuthenticating) {
+    return (
+        <div className="fixed inset-0 bg-primary flex items-center justify-center z-50">
+            <div className="text-center">
+                <div className="animate-spin rounded-full h-16 w-16 border-t-2 border-b-2 border-highlight mx-auto mb-4"></div>
+                <h2 className="text-2xl font-bold">Connecting to Game Services...</h2>
+            </div>
+        </div>
+    );
+  }
+
+  return (
+      <div className="min-h-screen bg-primary text-light font-sans p-4 relative">
+          {isLoading && (
+            <div className="fixed inset-0 bg-primary bg-opacity-90 flex items-center justify-center z-50">
+                <div className="text-center">
+                    <div className="animate-spin rounded-full h-16 w-16 border-t-2 border-b-2 border-highlight mx-auto mb-4"></div>
+                    <h2 className="text-2xl font-bold">Loading Assets...</h2>
+                </div>
+            </div>
+          )}
+          <div className="w-full max-w-7xl mx-auto">
+              <header className="w-full flex justify-between items-center p-4 bg-secondary rounded-lg shadow-lg mb-4 border border-accent">
+                <h1 className="text-3xl font-bold text-highlight">Visual Novel Forge</h1>
+                {(gameMode === 'local' || gameMode === 'online-gm') && gamePhase === 'play' && (
+                  <button onClick={() => setIsGmMenuOpen(true)} className="px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-md transition-colors">
+                    GM Actions
+                  </button>
+                )}
+                 {gamePhase === 'setup' && <div />}
+              </header>
+
+              <main>
+                {renderGamePhase()}
+              </main>
+
+              {(gameMode === 'local' || gameMode === 'online-gm') && gamePhase === 'play' && (
+                <GMMenu
+                    isOpen={isGmMenuOpen}
+                    onClose={() => setIsGmMenuOpen(false)}
+                    gameData={gameData}
+                    dispatch={dispatch}
+                    players={players}
+                    setPlayers={setPlayers}
+                    gameId={gameId}
+                />
+              )}
+          </div>
+      </div>
+  );
+};
+
+export default App;
