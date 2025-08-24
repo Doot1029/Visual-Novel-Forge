@@ -1,4 +1,4 @@
-import { ref, onChildAdded, onValue, set, push, Unsubscribe } from 'firebase/database';
+import { ref, onChildAdded, onValue, set, push, Unsubscribe, onDisconnect, onChildRemoved, remove } from 'firebase/database';
 import { GameData, Player, GamePhase } from '../types';
 import { Action } from '../state/reducer';
 import { db } from './firebase';
@@ -22,6 +22,8 @@ let messageHandler: ((message: NetworkMessage) => void) | null = null;
 // Keep track of Firebase listeners to detach them later
 let stateListenerUnsubscribe: Unsubscribe | null = null;
 let actionsListenerUnsubscribe: Unsubscribe | null = null;
+let presenceListenerUnsubscribe: Unsubscribe | null = null;
+let onDisconnectRef: any = null;
 
 
 /**
@@ -95,6 +97,58 @@ export const sendMessage = (message: NetworkMessage): void => {
 };
 
 /**
+ * Sets up a player's online presence, automatically removing them on disconnect.
+ * @param gameId The game ID.
+ * @param playerId The player's unique ID.
+ * @param playerName The player's name.
+ */
+export const setupPresence = (gameId: string, playerId: string, playerName: string): void => {
+    const presencePathRef = ref(db, `games/${gameId}/presence/${playerId}`);
+    // Set up the onDisconnect handler
+    onDisconnectRef = onDisconnect(presencePathRef);
+    onDisconnectRef.remove();
+    // Set the initial presence data
+    set(presencePathRef, { name: playerName });
+};
+
+/**
+ * Manually removes a player's presence data, e.g., when leaving voluntarily.
+ * @param gameId The game ID.
+ * @param playerId The player's unique ID.
+ */
+export const removePresence = (gameId: string, playerId: string): void => {
+    // Cancel the pending onDisconnect operation
+    if (onDisconnectRef) {
+        onDisconnectRef.cancel();
+        onDisconnectRef = null;
+    }
+    const presencePathRef = ref(db, `games/${gameId}/presence/${playerId}`);
+    remove(presencePathRef);
+};
+
+/**
+ * Listens for players leaving the game (GM only).
+ * @param gameId The game ID.
+ * @param onLeave Callback function when a player leaves.
+ */
+export const onPresenceChange = (gameId: string, onLeave: (id: string, name: string) => void) => {
+    const presencePathRef = ref(db, `games/${gameId}/presence`);
+    
+    if (presenceListenerUnsubscribe) {
+        presenceListenerUnsubscribe();
+    }
+    
+    presenceListenerUnsubscribe = onChildRemoved(presencePathRef, (snapshot) => {
+        const playerId = snapshot.key;
+        const playerData = snapshot.val();
+        if (playerId && playerData?.name) {
+            onLeave(playerId, playerData.name);
+        }
+    });
+};
+
+
+/**
  * Closes the connection and detaches all Firebase listeners.
  */
 export const closeChannel = (): void => {
@@ -105,6 +159,14 @@ export const closeChannel = (): void => {
     if (actionsListenerUnsubscribe) {
         actionsListenerUnsubscribe();
         actionsListenerUnsubscribe = null;
+    }
+    if (presenceListenerUnsubscribe) {
+        presenceListenerUnsubscribe();
+        presenceListenerUnsubscribe = null;
+    }
+    if (onDisconnectRef) {
+        onDisconnectRef.cancel();
+        onDisconnectRef = null;
     }
     currentGameId = null;
     // Don't reset the message handler, as it's set by React components

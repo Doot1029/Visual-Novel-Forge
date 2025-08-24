@@ -38,7 +38,7 @@ const App: React.FC = () => {
   
   // --- Online Multiplayer Logic ---
 
-  // GM: Listen for messages from players
+  // GM: Listen for messages from players and for presence changes
   useEffect(() => {
     if (gameMode !== 'online-gm' || !gameId) return;
 
@@ -54,8 +54,36 @@ const App: React.FC = () => {
         handleEndTurn();
       }
     });
+    
+    network.onPresenceChange(gameId, (leavingPlayerId, leavingPlayerName) => {
+        const playerExists = players.some(p => p.id === leavingPlayerId);
+        if (!playerExists) return; // Already processed
 
-  }, [gameMode, gameId, players]); // Rerun if players list changes to have the latest closure
+        dispatch({
+            type: 'ADD_LOG_ENTRY',
+            payload: {
+                type: 'stat_change',
+                text: `(${leavingPlayerName}) Has Left the Game!`
+            }
+        });
+
+        const leavingPlayerIndex = players.findIndex(p => p.id === leavingPlayerId);
+        const newPlayers = players.filter(p => p.id !== leavingPlayerId);
+        setPlayers(newPlayers);
+
+        // Adjust current player index if needed
+        if (newPlayers.length > 0) {
+            if (leavingPlayerIndex < currentPlayerIndex) {
+                setCurrentPlayerIndex(prev => prev - 1);
+            } else {
+                setCurrentPlayerIndex(prev => prev % newPlayers.length);
+            }
+        } else {
+            setCurrentPlayerIndex(0);
+        }
+    });
+
+  }, [gameMode, gameId, players, currentPlayerIndex]); // Rerun if players list changes to have the latest closure
 
   // GM: Broadcast state changes
   useEffect(() => {
@@ -122,6 +150,7 @@ const App: React.FC = () => {
     const playerId = sessionId;
     setMyPlayerId(playerId);
     network.joinGameChannel(id);
+    network.setupPresence(id, playerId, name);
     
     setConnectionStatus('connecting');
     network.sendMessage({ type: 'PLAYER_JOIN_REQUEST', payload: { name, id: playerId } });
@@ -191,6 +220,35 @@ const App: React.FC = () => {
     
     setCurrentPlayerIndex(prev => (prev + 1) % (players.length || 1));
   };
+  
+  const handleLeaveGame = () => {
+      if (gameMode === 'online-player') {
+          if (myPlayerId && gameId) {
+              network.removePresence(gameId, myPlayerId);
+          }
+          window.location.reload();
+      } else if (gameMode === 'local') {
+          const playerToRemove = players[currentPlayerIndex];
+          if (!playerToRemove) return;
+
+          if (!window.confirm(`Are you sure you want ${playerToRemove.name} to leave the game?`)) return;
+
+          dispatch({
+              type: 'ADD_LOG_ENTRY',
+              payload: {
+                  type: 'stat_change',
+                  text: `(${playerToRemove.name}) Has Left the Game!`
+              }
+          });
+          
+          const newPlayers = players.filter(p => p.id !== playerToRemove.id);
+          setPlayers(newPlayers);
+
+          // The current index will now point to the next player in the list.
+          // If the last player leaves, the index becomes 0.
+          setCurrentPlayerIndex(currentPlayerIndex % (newPlayers.length || 1));
+      }
+  };
 
   const returnToSetup = () => {
     window.location.reload();
@@ -259,6 +317,8 @@ const App: React.FC = () => {
     );
   }
 
+  const isPlayerInGame = (gameMode === 'local' && players.length > 0) || gameMode === 'online-player';
+
   return (
       <div className="min-h-screen bg-primary text-light font-sans p-4 relative">
           {isLoading && (
@@ -272,12 +332,19 @@ const App: React.FC = () => {
           <div className="w-full max-w-7xl mx-auto">
               <header className="w-full flex justify-between items-center p-4 bg-secondary rounded-lg shadow-lg mb-4 border border-accent">
                 <h1 className="text-3xl font-bold text-highlight">Visual Novel Forge</h1>
-                {(gameMode === 'local' || gameMode === 'online-gm') && gamePhase === 'play' && (
-                  <button onClick={() => setIsGmMenuOpen(true)} className="px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-md transition-colors">
-                    GM Actions
-                  </button>
-                )}
-                 {gamePhase === 'setup' && <div />}
+                <div className="flex items-center gap-4">
+                  {isPlayerInGame && gamePhase === 'play' && (
+                     <button onClick={handleLeaveGame} className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-md transition-colors">
+                      Leave Game
+                    </button>
+                  )}
+                  {(gameMode === 'local' || gameMode === 'online-gm') && gamePhase === 'play' && (
+                    <button onClick={() => setIsGmMenuOpen(true)} className="px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-md transition-colors">
+                      GM Actions
+                    </button>
+                  )}
+                  {gamePhase === 'setup' && <div />}
+                </div>
               </header>
 
               <main>
