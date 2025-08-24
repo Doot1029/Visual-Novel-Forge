@@ -155,7 +155,19 @@ const GMMenu: React.FC<GMMenuProps> = ({ isOpen, onClose, gameData, dispatch, pl
         }
     }
     const removePlayer = (id: string) => {
-        if (window.confirm("Are you sure you want to remove this player?")) {
+        const playerToRemove = players.find(p => p.id === id);
+        const playerName = playerToRemove?.name || 'this player';
+        
+        if (window.confirm(`Are you sure you want to remove ${playerName}?`)) {
+            if (playerToRemove) {
+                dispatch({
+                    type: 'ADD_LOG_ENTRY',
+                    payload: {
+                        type: 'stat_change',
+                        text: `(${playerToRemove.name}) Has Left the Game!`
+                    }
+                });
+            }
             setPlayers(players.filter(p => p.id !== id));
         }
     }
