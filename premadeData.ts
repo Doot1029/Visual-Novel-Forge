@@ -31,29 +31,37 @@ export interface AssetCollection {
 }
 
 export const PREMADE_BACKGROUNDS: PremadeAsset[] = [
-    { name: "Fantasy Castle", url: "https://loremflickr.com/1280/720/fantasy,castle?lock=1", type: "background" as const },
-    { name: "Enchanted Forest", url: "https://loremflickr.com/1280/720/fantasy,forest?lock=2", type: "background" as const },
-    { name: "Sci-Fi Megacity", url: "https://loremflickr.com/1280/720/cyberpunk,city?lock=3", type: "background" as const },
-    { name: "Spaceship Bridge", url: "https://loremflickr.com/1280/720/spaceship,bridge?lock=4", type: "background" as const },
-    { name: "Modern Library", url: "https://loremflickr.com/1280/720/library?lock=5", type: "background" as const },
-    { name: "Desert Ruins", url: "https://loremflickr.com/1280/720/ruins,desert?lock=6", type: "background" as const },
+    { name: "Kitchen 1", url: "https://i.ibb.co/tPsPHz86/Kitchen-2-Day.png", type: "background" as const },
+    { name: "Backyard 2", url: "https://i.ibb.co/n80Yr5bm/Backyard-2-Day.png", type: "background" as const },
+    { name: "Backyard 1", url: "https://i.ibb.co/cXYt5QS5/Backyard-1-Day.png", type: "background" as const },
+    { name: "Kitchen 2", url: "https://i.ibb.co/0Vv0SF4v/Kitchen-1-Night-Light.png", type: "background" as const },
+    { name: "Kitchen 2 (Day)", url: "https://i.ibb.co/KpPbxS2z/Kitchen-1-Day.png", type: "background" as const },
+    { name: "House", url: "https://i.ibb.co/LhRS2Kh3/House-3-Day.png", type: "background" as const },
+    { name: "Girl Bedroom (Night)", url: "https://i.ibb.co/psWM7Yk/Female-Bedroom-2-Night-Light.png", type: "background" as const },
+    { name: "Girl Bedroom (Day)", url: "https://i.ibb.co/XfXDPX6x/Female-Bedroom-2-Day.png", type: "background" as const },
+    { name: "Dining Room", url: "https://i.ibb.co/SX4chxwH/Dining-Room-2-Day.png", type: "background" as const },
+    { name: "Backyard 3", url: "https://i.ibb.co/xtSBPjgW/Backyard-3-Day.png", type: "background" as const },
+    { name: "Boy Bedroom (Day)", url: "https://i.ibb.co/QvFwXm1R/Male-Bedroom-3-Day.png", type: "background" as const },
+    { name: "Boy Bedroom (Night)", url: "https://i.ibb.co/TqJgZF6x/Male-Bedroom-3-Night-Light.png", type: "background" as const },
+    { name: "Bedroom (Night)", url: "https://i.ibb.co/Kpx4GYhM/Male-Bedroom-1-Night-Light.png", type: "background" as const },
+    { name: "Bedroom (Day)", url: "https://i.ibb.co/SX7qNz5T/Male-Bedroom-1-Day.png", type: "background" as const },
+    { name: "", url: "", type: "background" as const },
+    { name: "", url: "", type: "background" as const },
+    { name: "", url: "", type: "background" as const },
+    { name: "", url: "", type: "background" as const },
+    { name: "", url: "", type: "background" as const },
+    { name: "", url: "", type: "background" as const },
+    { name: "", url: "", type: "background" as const },
+    { name: "", url: "", type: "background" as const },
 ];
 
 export const PREMADE_SPRITE_COLLECTIONS: AssetCollection[] = [
   {
-    name: "Fantasy Heroes Pack",
+    name: "Mannequin Character 1 Pack",
     assets: [
       { name: "Amy", url: "https://i.ibb.co/bR8ZcvHF/Amy.png", type: "characterSprite" as const },
-      { name: "Male Mage", url: "https://loremflickr.com/768/1024/anime,male,mage?lock=8", type: "characterSprite" as const },
     ]
   },
-  {
-    name: "Sci-Fi Agents Pack",
-    assets: [
-       { name: "Cyberpunk Hacker", url: "https://loremflickr.com/768/1024/anime,cyberpunk,hacker?lock=9", type: "characterSprite" as const },
-       { name: "Android Agent", url: "https://loremflickr.com/768/1024/anime,android,cyborg?lock=10", type: "characterSprite" as const },
-    ]
-  }
 ];
 
 export const PREMADE_CG_COLLECTIONS: AssetCollection[] = [
