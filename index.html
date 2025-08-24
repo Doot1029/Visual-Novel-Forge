@@ -25,7 +25,6 @@
       }
     </script>
     <link rel="stylesheet" href="https://rsms.me/inter/inter.css">
-    <!-- Add Babel Standalone for in-browser TSX transpilation -->
     <script src="https://unpkg.com/@babel/standalone@7/babel.min.js"></script>
   <script type="importmap">
 {
@@ -35,14 +34,3013 @@
     "react-dom/client": "https://esm.sh/react-dom@^19.1.1/client",
     "react-dom/": "https://esm.sh/react-dom@^19.1.1/",
     "@google/genai": "https://esm.sh/@google/genai@^1.15.0",
-    "firebase/": "https://esm.sh/firebase@^12.1.0/"
+    "firebase/": "https://esm.sh/firebase@^12.1.0/",
+    "firebase/app": "https://esm.sh/firebase@^12.1.0/app",
+    "firebase/database": "https://esm.sh/firebase@^12.1.0/database",
+    "firebase/auth": "https://esm.sh/firebase@^12.1.0/auth"
   }
 }
 </script>
 </head>
   <body class="bg-primary text-light font-sans">
     <div id="root"></div>
-    <!-- Update script tag to be processed by Babel, using react and typescript presets -->
-    <script type="text/babel" data-type="module" data-presets="react,typescript" src="./index.tsx"></script>
+    <script type="text/babel" data-type="module" data-presets="react,typescript">
+// --- BUNDLED APPLICATION ---
+// All .ts and .tsx files have been inlined here in dependency order
+// to create a single, self-contained application that is easy to deploy.
+
+// --- CONSOLIDATED IMPORTS ---
+import React from 'react';
+import ReactDOM from 'react-dom/client';
+import { initializeApp } from 'firebase/app';
+import { getDatabase, ref, onChildAdded, onValue, set, push, onDisconnect, onChildRemoved, remove } from 'firebase/database';
+import { getAuth, onAuthStateChanged, signInAnonymously } from 'firebase/auth';
+
+
+// --- FROM constants.ts ---
+const NARRATOR_CHARACTER = {
+  id: 'narrator',
+  name: 'Narrator',
+  bio: 'The impartial storyteller who describes scenes and actions.',
+  spriteAssetIds: [],
+  health: 999,
+  maxHealth: 999,
+  mana: 999,
+  maxMana: 999,
+};
+
+const INITIAL_GAME_DATA = {
+  gmRules: '1. Be respectful to other players.\n2. No NSFW content.\n3. The Game Master\'s decisions are final.\n4. Have fun!',
+  assets: [],
+  characters: [NARRATOR_CHARACTER],
+  storyLog: [],
+  quests: [],
+  coins: 0,
+  chatLog: [],
+  lobbyChatLog: [],
+  lobbyMusicUrl: null,
+};
+
+const MAX_PLAYERS = 5;
+
+// --- FROM premadeData.ts ---
+const PREMADE_BIOS = {
+  "Fantasy": [
+    "A disgraced knight on a quest to restore their family's honor.",
+    "A powerful mage who has lost their memory and is relearning their abilities.",
+    "A cheerful baker with a mysterious past and an uncanny knowledge of ancient runes.",
+    "A hardened mercenary who only cares about money, until they find a cause worth fighting for.",
+    "A sky-pirate captain who values freedom above all else, constantly on the run from a tyrannical empire.",
+  ],
+  "Sci-Fi": [
+    "A grizzled starship pilot haunted by a past smuggling run that went horribly wrong.",
+    "An android struggling with newfound emotions and its place in a society that sees it as a machine.",
+    "A brilliant cyberneticist who is on the run after discovering their employer's unethical experiments.",
+    "A veteran soldier from an intergalactic war trying to adapt to a peaceful life on a backwater planet.",
+  ],
+  "Modern Mystery": [
+    "A cynical detective who has seen too much but can't quit the job.",
+    "An ambitious scholar obsessed with uncovering a forbidden historical secret.",
+    "A diplomat from a far-off land struggling to navigate the complex politics of a new city.",
+    "A street urchin with a hidden talent for observation that could change the fate of the investigation.",
+  ],
+};
+
+const PREMADE_BACKGROUNDS = [
+    { name: "Fantasy Castle", url: "https://loremflickr.com/1280/720/fantasy,castle?lock=1", type: "background" },
+    { name: "Enchanted Forest", url: "https://loremflickr.com/1280/720/fantasy,forest?lock=2", type: "background" },
+    { name: "Sci-Fi Megacity", url: "https://loremflickr.com/1280/720/cyberpunk,city?lock=3", type: "background" },
+    { name: "Spaceship Bridge", url: "https://loremflickr.com/1280/720/spaceship,bridge?lock=4", type: "background" },
+    { name: "Modern Library", url: "https://loremflickr.com/1280/720/library?lock=5", type: "background" },
+    { name: "Desert Ruins", url: "https://loremflickr.com/1280/720/ruins,desert?lock=6", type: "background" },
+];
+
+const PREMADE_SPRITE_COLLECTIONS = [
+  {
+    name: "Fantasy Heroes Pack",
+    assets: [
+      { name: "Amy", url: "https://i.ibb.co/bR8ZcvHF/Amy.png", type: "characterSprite" },
+      { name: "Male Mage", url: "https://loremflickr.com/768/1024/anime,male,mage?lock=8", type: "characterSprite" },
+    ]
+  },
+  {
+    name: "Sci-Fi Agents Pack",
+    assets: [
+       { name: "Cyberpunk Hacker", url: "https://loremflickr.com/768/1024/anime,cyberpunk,hacker?lock=9", type: "characterSprite" },
+       { name: "Android Agent", url: "https://loremflickr.com/768/1024/anime,android,cyborg?lock=10", type: "characterSprite" },
+    ]
+  }
+];
+
+const PREMADE_CG_COLLECTIONS = [
+    {
+        name: "Action Scenes",
+        assets: [
+            { name: "Epic Battle", url: "https://loremflickr.com/1280/720/fantasy,battle?lock=11", type: "cg" },
+            { name: "Explosion", url: "https://loremflickr.com/1280/720/explosion?lock=12", type: "cg" },
+        ]
+    },
+    {
+        name: "Atmospheric Scenes",
+        assets: [
+            { name: "Quiet Discovery", url: "https://loremflickr.com/1280/720/discovery,ancient?lock=13", type: "cg" },
+        ]
+    }
+];
+
+// --- FROM tutorialData.ts ---
+const TUTORIAL_STEPS = [
+    {
+        title: "The Setup Screen",
+        imageUrl: "https://i.ibb.co/Fb8FKtJb/Screenshot-2025-08-24-013536.png",
+        description: "Before the game begins, the host sets up the Game Rules, Players, Characters, and Assets. Online players will wait for the host to start the game."
+    },
+    {
+        title: "The Game Screen",
+        imageUrl: "https://i.ibb.co/RTrN8TBr/Screenshot-2025-08-24-014221.png",
+        description: "The main screen shows the visuals on the left. On the right, you can toggle between the story History and the game Status (character stats, quests)."
+    },
+    {
+        title: "Your Turn!",
+        imageUrl: "https://i.ibb.co/4wh0bnDg/Screenshot-2025-08-24-014724.png",
+        description: "When it's your turn, the controls appear at the bottom. Choose who to speak as, write dialogue, and change the scene. Click 'End Turn' when you're done."
+    },
+    {
+        title: "Making Choices",
+        imageUrl: "https://i.ibb.co/sp1QMHzX/Screenshot-2025-08-24-015036.png",
+        description: "If the previous player left choices for you, you must select one to continue the story. Your turn will end automatically after choosing."
+    },
+    {
+        title: "GM Actions",
+        imageUrl: "https://i.ibb.co/m5fY9mST/Screenshot-2025-08-24-015303.png",
+        description: "The host (GM) has access to a special menu to manage the game state, such as changing character stats, adding quests, managing players, and adding new assets on the fly."
+    },
+    {
+        title: "Out-of-Character (OOC) Chat",
+        imageUrl: "https://i.ibb.co/YCrzD5w/Screenshot-2025-08-24-015750.png",
+        description: "Use the chat panel in the bottom-right to talk to other players out-of-character. A notification will appear for unread messages."
+    }
+];
+
+// --- FROM services/firebase.ts ---
+const firebaseConfig = {
+  apiKey: "AIzaSyAQCA6Y1uMMkmDdVtmFsVNEBS9TlZXtiSc",
+  authDomain: "visual-novel-forge.firebaseapp.com",
+  databaseURL: "https://visual-novel-forge-default-rtdb.asia-southeast1.firebasedatabase.app",
+  projectId: "visual-novel-forge",
+  storageBucket: "visual-novel-forge.firebasestorage.app",
+  messagingSenderId: "370403552922",
+  appId: "1:370403552922:web:b2521765842590623b3923",
+  measurementId: "G-WB2RX95PM1"
+};
+
+const app = initializeApp(firebaseConfig);
+const db = getDatabase(app);
+const auth = getAuth(app);
+
+let authPromise = null;
+
+const signInAnonymouslyIfNeeded = () => {
+    if (auth.currentUser) {
+        return Promise.resolve();
+    }
+    if (authPromise) {
+        return authPromise;
+    }
+
+    authPromise = new Promise((resolve, reject) => {
+        const unsubscribe = onAuthStateChanged(auth, (user) => {
+            if (user) {
+                unsubscribe();
+                resolve();
+            } else {
+                signInAnonymously(auth).catch((error) => {
+                    unsubscribe(); 
+                    console.error("Error signing in anonymously:", error);
+                    alert("Could not connect to game services. Please check your internet connection and refresh the page to try again.");
+                    reject(error);
+                });
+            }
+        }, (error) => {
+            unsubscribe();
+            console.error("Auth state observer error:", error);
+            reject(error);
+        });
+    }).finally(() => {
+        authPromise = null;
+    });
+
+    return authPromise;
+};
+
+// --- FROM state/reducer.ts ---
+const gameReducer = (state, action) => {
+  switch (action.type) {
+    case 'UPDATE_GM_RULES':
+      return {
+        ...state,
+        gmRules: action.payload,
+      };
+    case 'ADD_ASSET':
+      return {
+        ...state,
+        assets: [...state.assets, { id: `asset-${Date.now()}`, isPublished: false, ...action.payload }],
+      };
+    case 'DELETE_ASSET': {
+        const assetIdToDelete = action.payload.id;
+        return {
+            ...state,
+            assets: state.assets.filter(a => a.id !== assetIdToDelete),
+            characters: state.characters.map(c => ({
+                ...c,
+                spriteAssetIds: (c.spriteAssetIds || []).filter(id => id !== assetIdToDelete)
+            }))
+        };
+    }
+    case 'SET_ASSET_PUBLISHED':
+        return {
+            ...state,
+            assets: state.assets.map(asset => 
+                asset.id === action.payload.id 
+                ? { ...asset, isPublished: action.payload.isPublished } 
+                : asset
+            )
+        };
+    case 'ADD_CHARACTER':
+        return {
+            ...state,
+            characters: [...state.characters, { 
+                id: `char-${Date.now()}`,
+                health: 100,
+                maxHealth: 100,
+                mana: 50,
+                maxMana: 50,
+                ...action.payload 
+            }],
+        };
+    case 'UPDATE_CHARACTER':
+        return {
+            ...state,
+            characters: state.characters.map(c => c.id === action.payload.id ? action.payload : c)
+        }
+    case 'DELETE_CHARACTER':
+        return {
+            ...state,
+            characters: state.characters.filter(c => c.id !== action.payload.id)
+        }
+    case 'ADD_LOG_ENTRY':
+      return {
+        ...state,
+        storyLog: [...state.storyLog, action.payload],
+      };
+    case 'RESET_STORY_LOG':
+        return {
+            ...state,
+            storyLog: []
+        }
+    case 'BATCH_ADD_DATA':
+        return {
+            ...state,
+            characters: [...state.characters, ...action.payload.characters],
+            assets: [...state.assets, ...action.payload.assets],
+        };
+    case 'BATCH_ADD_ASSETS': {
+        const newAssets = action.payload.map((asset, index) => ({
+            id: `asset-${Date.now()}-${index}`,
+            ...asset,
+        }));
+        return {
+            ...state,
+            assets: [...state.assets, ...newAssets],
+        };
+    }
+    case 'ADD_QUEST':
+      return {
+        ...state,
+        quests: [...state.quests, { id: `quest-${Date.now()}`, status: 'active', ...action.payload }],
+      };
+    case 'UPDATE_QUEST': {
+        const questToUpdate = state.quests.find(q => q.id === action.payload.id);
+        if (!questToUpdate || questToUpdate.status === action.payload.status) {
+            return state;
+        }
+
+        const updatedQuests = state.quests.map(q => q.id === action.payload.id ? { ...q, status: action.payload.status } : q);
+        const updatedCharacters = state.characters;
+        let updatedCoins = state.coins;
+        const logEntries = [];
+
+        if (action.payload.status === 'completed') {
+            const { rewards, title } = questToUpdate;
+            updatedCoins += rewards.coins;
+            logEntries.push({type: 'quest_status', text: `Quest Completed: ${title}`});
+            if (rewards.coins > 0) {
+                 logEntries.push({type: 'stat_change', text: `Party received ${rewards.coins} coins.`});
+            }
+        }
+        
+        return {
+            ...state,
+            quests: updatedQuests,
+            characters: updatedCharacters,
+            coins: updatedCoins,
+            storyLog: [...state.storyLog, ...logEntries]
+        };
+    }
+    case 'SET_COINS':
+        return {
+            ...state,
+            coins: action.payload >= 0 ? action.payload : 0,
+        };
+    case 'ADD_CHAT_MESSAGE':
+        return {
+            ...state,
+            chatLog: [...(state.chatLog || []), action.payload],
+        };
+    case 'ADD_LOBBY_CHAT_MESSAGE':
+        return {
+            ...state,
+            lobbyChatLog: [...(state.lobbyChatLog || []), action.payload],
+        };
+    case 'SET_LOBBY_MUSIC':
+        return {
+            ...state,
+            lobbyMusicUrl: action.payload,
+        };
+    case 'SET_GAME_DATA': {
+        const payload = action.payload;
+        return {
+            ...INITIAL_GAME_DATA,
+            ...payload,
+            assets: payload.assets || [],
+            characters: payload.characters || [],
+            storyLog: payload.storyLog || [],
+            quests: payload.quests || [],
+            chatLog: payload.chatLog || [],
+            lobbyChatLog: payload.lobbyChatLog || [],
+            lobbyMusicUrl: payload.lobbyMusicUrl || null,
+        };
+    }
+    default:
+      return state;
+  }
+};
+
+// --- FROM services/networkService.ts ---
+const network = (() => {
+
+  let currentGameId = null;
+  let messageHandler = null;
+  let stateListenerUnsubscribe = null;
+  let musicListenerUnsubscribe = null;
+  let actionsListenerUnsubscribe = null;
+  let presenceListenerUnsubscribe = null;
+  let onDisconnectRef = null;
+
+  const onMessage = (handler) => {
+      messageHandler = handler;
+  };
+
+  const createGameChannel = (gameId) => {
+      closeChannel();
+      currentGameId = gameId;
+
+      const actionsPathRef = ref(db, `games/${gameId}/actions`);
+      
+      actionsListenerUnsubscribe = onChildAdded(actionsPathRef, (snapshot) => {
+          if (messageHandler && snapshot.exists()) {
+              messageHandler(snapshot.val());
+          }
+      });
+  };
+
+  const joinGameChannel = (gameId) => {
+      closeChannel();
+      currentGameId = gameId;
+
+      const statePathRef = ref(db, `games/${gameId}/state`);
+      const musicPathRef = ref(db, `games/${gameId}/music`);
+
+      let mainState = null;
+      let musicData = null;
+
+      const combineAndDispatch = () => {
+          if (mainState && messageHandler) {
+              const combinedPayload = { ...mainState };
+              if (musicData && musicData.lobbyMusicUrl) {
+                  if (!combinedPayload.gameData) {
+                      combinedPayload.gameData = {};
+                  }
+                  combinedPayload.gameData.lobbyMusicUrl = musicData.lobbyMusicUrl;
+              } else if (combinedPayload.gameData) {
+                  combinedPayload.gameData.lobbyMusicUrl = null;
+              }
+              messageHandler({ type: 'GAME_STATE_SYNC', payload: combinedPayload });
+          }
+      };
+
+      stateListenerUnsubscribe = onValue(statePathRef, (snapshot) => {
+          const stateSyncPayload = snapshot.val();
+          if (stateSyncPayload) {
+              mainState = stateSyncPayload;
+              combineAndDispatch();
+          }
+      });
+
+      musicListenerUnsubscribe = onValue(musicPathRef, (snapshot) => {
+          musicData = snapshot.val();
+          if (mainState) {
+              combineAndDispatch();
+          }
+      });
+  };
+
+  const sendMessage = (message) => {
+      if (!currentGameId) {
+          console.error("Network channel is not initialized. Cannot send message.");
+          return;
+      }
+      
+      const handleError = (error) => {
+          console.error("Failed to send message to Firebase:", error);
+          alert(`Network Error: Could not send data to the game. This might be due to a large asset file (like music) or a connection issue. The host may need to restart the lobby.\n\nDetails: ${error.message}`);
+      };
+
+      if (message.type === 'GAME_STATE_SYNC') {
+          const { gameData, ...restOfPayload } = message.payload;
+          const { lobbyMusicUrl, ...restOfGameData } = gameData;
+
+          const statePathRef = ref(db, `games/${currentGameId}/state`);
+          const mainStatePayload = { gameData: restOfGameData, ...restOfPayload };
+          set(statePathRef, mainStatePayload).catch(handleError);
+
+          const musicPathRef = ref(db, `games/${currentGameId}/music`);
+          set(musicPathRef, { lobbyMusicUrl: lobbyMusicUrl || null }).catch(handleError);
+      } else {
+          const actionsPathRef = ref(db, `games/${currentGameId}/actions`);
+          push(actionsPathRef, message).catch(handleError);
+      }
+  };
+
+  const setupPresence = (gameId, playerId, playerName) => {
+      const presencePathRef = ref(db, `games/${gameId}/presence/${playerId}`);
+      onDisconnectRef = onDisconnect(presencePathRef);
+      onDisconnectRef.remove();
+      set(presencePathRef, { name: playerName });
+  };
+
+  const removePresence = (gameId, playerId) => {
+      if (onDisconnectRef) {
+          onDisconnectRef.cancel();
+          onDisconnectRef = null;
+      }
+      const presencePathRef = ref(db, `games/${gameId}/presence/${playerId}`);
+      remove(presencePathRef);
+  };
+
+  const onPresenceChange = (gameId, onLeave) => {
+      const presencePathRef = ref(db, `games/${gameId}/presence`);
+      
+      if (presenceListenerUnsubscribe) {
+          presenceListenerUnsubscribe();
+      }
+      
+      presenceListenerUnsubscribe = onChildRemoved(presencePathRef, (snapshot) => {
+          const playerId = snapshot.key;
+          const playerData = snapshot.val();
+          if (playerId && playerData?.name) {
+              onLeave(playerId, playerData.name);
+          }
+      });
+  };
+
+  const closeChannel = () => {
+      if (stateListenerUnsubscribe) stateListenerUnsubscribe();
+      if (musicListenerUnsubscribe) musicListenerUnsubscribe();
+      if (actionsListenerUnsubscribe) actionsListenerUnsubscribe();
+      if (presenceListenerUnsubscribe) presenceListenerUnsubscribe();
+      if (onDisconnectRef) onDisconnectRef.cancel();
+      
+      stateListenerUnsubscribe = null;
+      musicListenerUnsubscribe = null;
+      actionsListenerUnsubscribe = null;
+      presenceListenerUnsubscribe = null;
+      onDisconnectRef = null;
+      currentGameId = null;
+  };
+
+  return {
+    onMessage,
+    createGameChannel,
+    joinGameChannel,
+    sendMessage,
+    setupPresence,
+    removePresence,
+    onPresenceChange,
+    closeChannel,
+  };
+})();
+
+
+// --- FROM components/PremadeAssetBrowser.tsx ---
+const PremadeAssetBrowser = ({ onAddAsset, onAddAssetCollection }) => {
+  const [category, setCategory] = React.useState('backgrounds');
+
+  const renderContent = () => {
+    switch (category) {
+        case 'backgrounds':
+            return (
+                 <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 max-h-64 overflow-y-auto p-1 bg-primary rounded">
+                    {PREMADE_BACKGROUNDS.map(asset => (
+                        <div key={asset.url} className="bg-secondary p-2 rounded-lg group relative">
+                            <img src={asset.url} alt={asset.name} className="w-full h-24 object-cover rounded-md" />
+                            <p className="text-xs mt-1 truncate">{asset.name}</p>
+                            <div className="absolute inset-0 bg-black bg-opacity-60 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+                            <button
+                                onClick={() => onAddAsset({ ...asset, isPublished: true })}
+                                className="px-3 py-1 bg-highlight text-white text-sm font-bold rounded-lg hover:bg-opacity-80"
+                            >
+                                Add
+                            </button>
+                            </div>
+                        </div>
+                    ))}
+                </div>
+            );
+        case 'characterSprites':
+        case 'cgs':
+            const collections = category === 'characterSprites' ? PREMADE_SPRITE_COLLECTIONS : PREMADE_CG_COLLECTIONS;
+            return (
+                <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 max-h-64 overflow-y-auto p-1 bg-primary rounded">
+                    {collections.map(collection => (
+                         <div key={collection.name} className="bg-secondary p-2 rounded-lg group relative">
+                            <img src={collection.assets[0].url} alt={collection.name} className="w-full h-24 object-cover rounded-md" />
+                            <p className="text-xs mt-1 truncate">{collection.name} ({collection.assets.length} assets)</p>
+                            <div className="absolute inset-0 bg-black bg-opacity-60 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+                            <button
+                                onClick={() => onAddAssetCollection(collection.assets)}
+                                className="px-3 py-1 bg-highlight text-white text-sm font-bold rounded-lg hover:bg-opacity-80"
+                            >
+                                Add Collection
+                            </button>
+                            </div>
+                        </div>
+                    ))}
+                </div>
+            );
+        default:
+            return null;
+    }
+  }
+
+  return (
+    <div>
+      <div className="flex border-b border-accent mb-2">
+        <button onClick={() => setCategory('backgrounds')} className={`px-3 py-1 text-sm ${category === 'backgrounds' ? 'text-highlight border-b-2 border-highlight' : 'text-light'}`}>Backgrounds</button>
+        <button onClick={() => setCategory('characterSprites')} className={`px-3 py-1 text-sm ${category === 'characterSprites' ? 'text-highlight border-b-2 border-highlight' : 'text-light'}`}>Sprite Collections</button>
+        <button onClick={() => setCategory('cgs')} className={`px-3 py-1 text-sm ${category === 'cgs' ? 'text-highlight border-b-2 border-highlight' : 'text-light'}`}>CG Collections</button>
+      </div>
+      {renderContent()}
+    </div>
+  );
+};
+
+// --- FROM components/CharacterEditor.tsx ---
+const CharacterEditor = ({ char, allSprites, updateCharacter, onDeleteCharacter }) => {
+    const [selectedBioGenre, setSelectedBioGenre] = React.useState(Object.keys(PREMADE_BIOS)[0]);
+
+    const assignedSprites = allSprites.filter(s => (char.spriteAssetIds || []).includes(s.id));
+    const availableSprites = allSprites.filter(s => !(char.spriteAssetIds || []).includes(s.id));
+
+    const handleAssignSprite = (spriteId) => {
+        updateCharacter({ ...char, spriteAssetIds: [...(char.spriteAssetIds || []), spriteId] });
+    };
+
+    const handleUnassignSprite = (spriteId) => {
+        updateCharacter({ ...char, spriteAssetIds: (char.spriteAssetIds || []).filter(id => id !== spriteId) });
+    };
+    
+    const handleGenerateBio = () => {
+        const bios = PREMADE_BIOS[selectedBioGenre] || [];
+        if (bios.length > 0) {
+            const randomBio = bios[Math.floor(Math.random() * bios.length)];
+            updateCharacter({ ...char, bio: randomBio });
+        }
+    };
+
+    return (
+        <div className="bg-accent p-4 rounded-lg space-y-3 relative">
+            <button data-id={char.id} onClick={onDeleteCharacter} className="absolute top-2 right-2 text-red-500 hover:text-red-400 p-1 rounded-full font-bold z-10">X</button>
+            <input value={char.name} onChange={e => updateCharacter({ ...char, name: e.target.value })} className="w-full p-2 bg-primary rounded-md font-bold" placeholder="Character Name" />
+            
+            <div className="grid grid-cols-2 gap-2">
+                <div>
+                    <label className="text-xs text-gray-400">Health (HP)</label>
+                    <div className="flex items-center gap-1">
+                    <input type="number" value={char.health} onChange={e => updateCharacter({ ...char, health: Math.max(0, parseInt(e.target.value) || 0) })} className="w-full p-1 text-sm bg-primary rounded-md" />
+                    <span className="text-gray-400">/</span>
+                    <input type="number" value={char.maxHealth} onChange={e => updateCharacter({ ...char, maxHealth: Math.max(1, parseInt(e.target.value) || 1) })} className="w-full p-1 text-sm bg-primary rounded-md" />
+                    </div>
+                </div>
+                <div>
+                    <label className="text-xs text-gray-400">Mana (MP)</label>
+                    <div className="flex items-center gap-1">
+                    <input type="number" value={char.mana} onChange={e => updateCharacter({ ...char, mana: Math.max(0, parseInt(e.target.value) || 0) })} className="w-full p-1 text-sm bg-primary rounded-md" />
+                     <span className="text-gray-400">/</span>
+                    <input type="number" value={char.maxMana} onChange={e => updateCharacter({ ...char, maxMana: Math.max(0, parseInt(e.target.value) || 0) })} className="w-full p-1 text-sm bg-primary rounded-md" />
+                    </div>
+                </div>
+            </div>
+
+            <div>
+                <textarea value={char.bio} onChange={e => updateCharacter({ ...char, bio: e.target.value })} className="w-full p-2 bg-primary rounded-md h-20" placeholder="Character Bio" />
+                 <div className="flex items-center gap-2 mt-1">
+                    <select onChange={e => setSelectedBioGenre(e.target.value)} value={selectedBioGenre} className="text-xs p-1 bg-primary rounded-md">
+                        {Object.keys(PREMADE_BIOS).map(genre => <option key={genre} value={genre}>{genre}</option>)}
+                    </select>
+                    <button onClick={handleGenerateBio} className="text-xs px-2 py-1 bg-purple-600 hover:bg-purple-700 rounded-md">
+                        Suggest Premade Bio
+                    </button>
+                </div>
+            </div>
+            
+            <div className="grid grid-cols-2 gap-4">
+                <div>
+                    <h4 className="text-sm font-semibold mb-1">Assigned Sprites</h4>
+                    <div className="bg-primary p-2 rounded-md min-h-[100px] space-y-1">
+                        {assignedSprites.map(s => (
+                            <div key={s.id} className="flex items-center justify-between bg-secondary p-1 rounded">
+                                <span className="text-xs truncate">{s.name}</span>
+                                <button onClick={() => handleUnassignSprite(s.id)} className="text-xs text-red-400 hover:text-red-300 px-1">Unassign</button>
+                            </div>
+                        ))}
+                    </div>
+                </div>
+                <div>
+                    <h4 className="text-sm font-semibold mb-1">Available Sprites</h4>
+                    <div className="bg-primary p-2 rounded-md min-h-[100px] space-y-1 max-h-[150px] overflow-y-auto">
+                         {availableSprites.map(s => (
+                            <div key={s.id} className="flex items-center justify-between bg-secondary p-1 rounded">
+                                <span className="text-xs truncate">{s.name}</span>
+                                <button onClick={() => handleAssignSprite(s.id)} className="text-xs text-green-400 hover:text-green-300 px-1">Assign</button>
+                            </div>
+                        ))}
+                    </div>
+                </div>
+            </div>
+        </div>
+    )
+}
+
+// --- FROM components/LobbyChat.tsx ---
+const LobbyChat = ({ chatLog, onSendMessage, canSendMessage, title }) => {
+    const [message, setMessage] = React.useState('');
+    const chatBodyRef = React.useRef(null);
+
+    React.useEffect(() => {
+        if (chatBodyRef.current) {
+            chatBodyRef.current.scrollTop = chatBodyRef.current.scrollHeight;
+        }
+    }, [chatLog]);
+
+    const handleSend = (e) => {
+        e.preventDefault();
+        if (message.trim() && canSendMessage) {
+            onSendMessage(message.trim());
+            setMessage('');
+        }
+    };
+
+    return (
+        <div className="bg-accent p-4 rounded-lg flex flex-col h-full">
+            <h3 className="text-xl font-semibold mb-2 text-highlight">{title}</h3>
+            <div ref={chatBodyRef} className="flex-1 overflow-y-auto pr-2 space-y-2 mb-2 text-sm bg-primary p-2 rounded-md">
+                {(chatLog || []).map((chat, index) => (
+                    <div key={`${chat.timestamp}-${index}`}>
+                        <span className="font-bold text-blue-400">{chat.senderName}: </span>
+                        <span>{chat.text}</span>
+                    </div>
+                ))}
+                {(!chatLog || chatLog.length === 0) && (
+                    <p className="text-center text-gray-400 italic">No messages yet. Say hi!</p>
+                )}
+            </div>
+            {canSendMessage ? (
+                <form onSubmit={handleSend} className="flex gap-2">
+                    <input
+                        type="text"
+                        value={message}
+                        onChange={(e) => setMessage(e.target.value)}
+                        placeholder="Type a message..."
+                        className="flex-1 p-2 bg-primary rounded-md outline-none focus:ring-2 focus:ring-highlight"
+                    />
+                    <button type="submit" className="px-4 py-2 bg-highlight rounded-md font-bold hover:bg-opacity-80">Send</button>
+                </form>
+            ) : (
+                <p className="text-center text-sm text-gray-400 italic">Chat is disabled.</p>
+            )}
+        </div>
+    );
+};
+
+// --- FROM components/ChatView.tsx ---
+const ChatView = ({ chatLog, onSendMessage, canSendMessage }) => {
+    const [isExpanded, setIsExpanded] = React.useState(false);
+    const [message, setMessage] = React.useState('');
+    const [unreadCount, setUnreadCount] = React.useState(0);
+    const chatBodyRef = React.useRef(null);
+    const prevChatLogLength = React.useRef(chatLog ? chatLog.length : 0);
+
+    React.useEffect(() => {
+        if (isExpanded && chatBodyRef.current) {
+            chatBodyRef.current.scrollTop = chatBodyRef.current.scrollHeight;
+        }
+    }, [chatLog, isExpanded]);
+
+    React.useEffect(() => {
+        const currentLength = chatLog ? chatLog.length : 0;
+        if (!isExpanded && currentLength > prevChatLogLength.current) {
+            const newMessagesCount = currentLength - prevChatLogLength.current;
+            setUnreadCount(prev => prev + newMessagesCount);
+        }
+        prevChatLogLength.current = currentLength;
+    }, [chatLog, isExpanded]);
+
+
+    const handleSend = (e) => {
+        e.preventDefault();
+        if (message.trim() && canSendMessage) {
+            onSendMessage(message.trim());
+            setMessage('');
+        }
+    };
+    
+    const handleToggleExpand = () => {
+        if (isExpanded) {
+            setUnreadCount(0);
+        }
+        setIsExpanded(!isExpanded);
+    };
+
+    const firstUnreadIndex = unreadCount > 0 ? (chatLog || []).length - unreadCount : -1;
+    
+    return (
+        <div className="fixed bottom-4 right-4 w-full max-w-md z-40">
+            <div className={`bg-secondary shadow-2xl rounded-lg border-2 border-accent transition-all duration-300 ${isExpanded ? 'h-96' : 'h-12'}`}>
+                <button 
+                    onClick={handleToggleExpand} 
+                    className="w-full h-12 p-3 text-left font-bold text-highlight flex justify-between items-center"
+                >
+                    <div className="flex items-center gap-2">
+                        <span>OOC Chat</span>
+                        {unreadCount > 0 && !isExpanded && (
+                             <span className="bg-red-600 text-white text-xs font-bold rounded-full h-5 w-5 flex items-center justify-center animate-pulse">
+                                {unreadCount > 9 ? '9+' : unreadCount}
+                            </span>
+                        )}
+                    </div>
+                    <span>{isExpanded ? '▼' : '▲'}</span>
+                </button>
+                {isExpanded && (
+                    <div className="p-3 h-[calc(100%-3rem)] flex flex-col">
+                        <div ref={chatBodyRef} className="flex-1 overflow-y-auto pr-2 space-y-2 mb-2 text-sm">
+                            {(chatLog || []).map((chat, index) => (
+                                <React.Fragment key={`${chat.timestamp}-${index}`}>
+                                    {index === firstUnreadIndex && (
+                                        <div className="relative my-2 h-px bg-red-500">
+                                            <span className="absolute left-1/2 -translate-x-1/2 -translate-y-1/2 bg-secondary px-2 text-xs text-red-400">
+                                                New Messages
+                                            </span>
+                                        </div>
+                                    )}
+                                    <div>
+                                        <span className="font-bold text-blue-400">{chat.senderName}: </span>
+                                        <span>{chat.text}</span>
+                                    </div>
+                                </React.Fragment>
+                            ))}
+                             {(!chatLog || chatLog.length === 0) && (
+                                <p className="text-center text-gray-400 italic">No messages yet.</p>
+                            )}
+                        </div>
+                        {canSendMessage ? (
+                            <form onSubmit={handleSend} className="flex gap-2">
+                                <input 
+                                    type="text"
+                                    value={message}
+                                    onChange={(e) => setMessage(e.target.value)}
+                                    placeholder="Type a message..."
+                                    className="flex-1 p-2 bg-primary rounded-md outline-none focus:ring-2 focus:ring-highlight"
+                                />
+                                <button type="submit" className="px-4 py-2 bg-highlight rounded-md font-bold hover:bg-opacity-80">Send</button>
+                            </form>
+                        ) : (
+                             <p className="text-center text-sm text-gray-400 italic">You are spectating.</p>
+                        )}
+                    </div>
+                )}
+            </div>
+        </div>
+    );
+};
+
+// --- FROM components/GmRulesModal.tsx ---
+const GmRulesModal = ({ rules, onClose }) => {
+    return (
+        <div 
+            className="fixed inset-0 bg-primary bg-opacity-90 z-50 flex items-center justify-center p-4"
+            aria-modal="true"
+            role="dialog"
+        >
+            <div className="bg-secondary rounded-lg shadow-2xl w-full max-w-lg flex flex-col relative border-2 border-accent">
+                <div className="flex justify-between items-center p-4 border-b border-accent">
+                    <h2 className="text-2xl font-bold text-highlight">Game Master's Rules</h2>
+                    <button onClick={onClose} className="text-light hover:text-highlight text-3xl font-bold" aria-label="Close Rules">&times;</button>
+                </div>
+                <div className="p-6 overflow-y-auto max-h-[60vh]">
+                    <div className="text-light whitespace-pre-wrap">{rules}</div>
+                </div>
+                <div className="p-4 border-t border-accent text-right">
+                    <button onClick={onClose} className="px-6 py-2 bg-highlight text-white font-bold rounded-lg hover:bg-opacity-80">
+                        Got it!
+                    </button>
+                </div>
+            </div>
+        </div>
+    );
+};
+
+// --- FROM components/TutorialModal.tsx ---
+const TutorialModal = ({ onClose }) => {
+    const [currentStep, setCurrentStep] = React.useState(0);
+
+    const handleNext = () => {
+        if (currentStep < TUTORIAL_STEPS.length - 1) {
+            setCurrentStep(currentStep + 1);
+        }
+    };
+
+    const handlePrev = () => {
+        if (currentStep > 0) {
+            setCurrentStep(currentStep - 1);
+        }
+    };
+    
+    const { imageUrl, description, title } = TUTORIAL_STEPS[currentStep];
+
+    return (
+        <div 
+            className="fixed inset-0 bg-primary bg-opacity-90 z-50 flex items-center justify-center p-4"
+            aria-modal="true"
+            role="dialog"
+        >
+            <div className="bg-secondary rounded-lg shadow-2xl w-full max-w-3xl flex flex-col relative border-2 border-accent">
+                <div className="flex justify-between items-center p-4 border-b border-accent">
+                    <h2 className="text-2xl font-bold text-highlight">Game Tutorial</h2>
+                    <button onClick={onClose} className="text-light hover:text-highlight text-3xl font-bold" aria-label="Close Tutorial">&times;</button>
+                </div>
+                <div className="p-6 flex-1 overflow-y-auto">
+                    <h3 className="text-xl font-semibold mb-4 text-center">{title}</h3>
+                    <div className="relative aspect-video bg-primary rounded-lg mb-4">
+                        <img src={imageUrl} alt={title} className="w-full h-full object-contain" />
+                    </div>
+                    <p className="text-light text-center min-h-[4rem]">{description}</p>
+                </div>
+                <div className="p-4 border-t border-accent flex justify-between items-center">
+                     <button 
+                        onClick={handlePrev} 
+                        disabled={currentStep === 0}
+                        className="px-6 py-2 bg-accent text-white font-bold rounded-lg hover:bg-opacity-80 disabled:bg-gray-600 disabled:cursor-not-allowed"
+                     >
+                        &larr; Prev
+                    </button>
+                    <span className="font-mono">{currentStep + 1} / {TUTORIAL_STEPS.length}</span>
+                     <button 
+                        onClick={handleNext} 
+                        disabled={currentStep === TUTORIAL_STEPS.length - 1}
+                        className="px-6 py-2 bg-accent text-white font-bold rounded-lg hover:bg-opacity-80 disabled:bg-gray-600 disabled:cursor-not-allowed"
+                     >
+                        Next &rarr;
+                    </button>
+                </div>
+            </div>
+        </div>
+    );
+};
+
+// --- FROM components/SetupView.tsx ---
+const GameSetup = ({ gameData, dispatch, players, setPlayers, onStartGame, isOnline }) => {
+    const [activeTab, setActiveTab] = React.useState('game');
+    const [assetUrl, setAssetUrl] = React.useState('');
+    const [assetName, setAssetName] = React.useState('');
+    const [assetType, setAssetType] = React.useState('background');
+    const [hostAsPlayer, setHostAsPlayer] = React.useState(true);
+    const [hostPlayerName, setHostPlayerName] = React.useState('Player 1');
+    const [error, setError] = React.useState(null);
+    
+    const handlePlayerNameChange = (id, name) => {
+        setPlayers(players.map(p => p.id === id ? {...p, name} : p));
+    }
+
+    const addPlayer = () => {
+        if (players.length < MAX_PLAYERS) {
+            const newPlayer = { id: `p-${Date.now()}`, name: `Player ${players.length + 1}`, lastSeenLogIndex: 0 };
+            setPlayers([...players, newPlayer]);
+        }
+    }
+    const removePlayer = (id) => {
+        setPlayers(players.filter(p => p.id !== id));
+    }
+
+    const addNewCharacter = () => {
+        dispatch({ type: 'ADD_CHARACTER', payload: { name: 'New Character', bio: '', spriteAssetIds: [] } });
+    }
+
+    const updateCharacter = (character) => {
+        dispatch({ type: 'UPDATE_CHARACTER', payload: character });
+    }
+
+    const handleDeleteCharacter = (e) => {
+        const id = e.currentTarget.dataset.id;
+        if (id && window.confirm('Are you sure you want to delete this character?')) {
+            dispatch({ type: 'DELETE_CHARACTER', payload: { id } });
+        }
+    };
+    
+    const handleFileChange = (event, type) => {
+        const file = event.target.files?.[0];
+        if (file) {
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                const url = e.target?.result;
+                dispatch({ type: 'ADD_ASSET', payload: { type, url, name: file.name, isPublished: true } });
+            };
+            reader.readAsDataURL(file);
+        }
+        event.target.value = '';
+    };
+    
+    const handleAddAssetFromUrl = () => {
+        if (!assetUrl.trim() || !assetName.trim()) {
+          alert('Please provide a valid URL and a name for the asset.');
+          return;
+        }
+        try {
+          new URL(assetUrl);
+        } catch (_) {
+          alert('Please enter a valid URL.');
+          return;
+        }
+
+        dispatch({ type: 'ADD_ASSET', payload: { url: assetUrl, name: assetName, type: assetType, isPublished: true } });
+        setAssetUrl('');
+        setAssetName('');
+    };
+
+    const handleStartGameClick = () => {
+        if (gameData.characters.length <= 1) {
+            setError('You must create at least one character besides the Narrator.');
+            return;
+        }
+
+        if (isOnline) {
+            if (hostAsPlayer && !hostPlayerName.trim()) {
+                setError('Please enter a name for Player 1.');
+                return;
+            }
+            setError(null);
+            onStartGame({ asPlayer: hostAsPlayer, playerName: hostPlayerName });
+        } else {
+            setError(null);
+            onStartGame();
+        }
+    };
+
+    const handleAddAssetCollection = (assets) => {
+        dispatch({ type: 'BATCH_ADD_ASSETS', payload: assets.map(a => ({ ...a, isPublished: true })) });
+    };
+
+    return (
+        <>
+            <div className="flex border-b border-accent mb-4">
+                <button onClick={() => setActiveTab('game')} className={`px-4 py-2 ${activeTab === 'game' ? 'text-highlight border-b-2 border-highlight' : 'text-light'}`}>Game & Players</button>
+                <button onClick={() => setActiveTab('characters')} className={`px-4 py-2 ${activeTab === 'characters' ? 'text-highlight border-b-2 border-highlight' : 'text-light'}`}>Characters</button>
+                <button onClick={() => setActiveTab('assets')} className={`px-4 py-2 ${activeTab === 'assets' ? 'text-highlight border-b-2 border-highlight' : 'text-light'}`}>Assets</button>
+            </div>
+
+            {activeTab === 'game' && (
+                <div className="space-y-6">
+                    <div>
+                        <label className="text-lg font-semibold text-highlight">Game Master Rules</label>
+                        <textarea value={gameData.gmRules} onChange={e => dispatch({type: 'UPDATE_GM_RULES', payload: e.target.value})} className="w-full mt-1 p-2 bg-accent rounded-md h-24 focus:ring-2 focus:ring-highlight outline-none" />
+                    </div>
+                    {isOnline && (
+                        <div>
+                            <h3 className="text-lg font-semibold text-highlight mb-2">Lobby Music</h3>
+                            <div className="bg-accent p-3 rounded-md">
+                                {gameData.lobbyMusicUrl ? (
+                                    <div className="flex items-center justify-between">
+                                        <p className="text-sm italic">Music has been uploaded.</p>
+                                        <button 
+                                            onClick={() => dispatch({ type: 'SET_LOBBY_MUSIC', payload: null })}
+                                            className="text-red-500 hover:text-red-400 text-xs font-bold"
+                                        >
+                                            Remove Music
+                                        </button>
+                                    </div>
+                                ) : (
+                                    <label className="px-4 py-2 bg-blue-600 hover:bg-blue-700 rounded-md cursor-pointer text-sm">
+                                        Upload Music (MP3, WAV)
+                                        <input 
+                                            type="file" 
+                                            className="hidden" 
+                                            accept="audio/mpeg,audio/wav" 
+                                            onChange={(e) => {
+                                                const file = e.target.files?.[0];
+                                                if (file) {
+                                                    if (file.size > 11 * 1024 * 1024) {
+                                                        alert('Music file is too large. Please choose a file smaller than 11MB.');
+                                                        e.target.value = '';
+                                                        return;
+                                                    }
+                                                    const reader = new FileReader();
+                                                    reader.onload = (event) => {
+                                                        dispatch({ type: 'SET_LOBBY_MUSIC', payload: event.target?.result });
+                                                    };
+                                                    reader.readAsDataURL(file);
+                                                }
+                                                e.target.value = '';
+                                            }}
+                                        />
+                                    </label>
+                                )}
+                            </div>
+                        </div>
+                    )}
+                    <div>
+                        <h3 className="text-lg font-semibold text-highlight mb-2">Players</h3>
+                        { isOnline ? (
+                            <div className="bg-accent p-3 rounded-md text-sm">
+                                <div className="mb-3">
+                                    <label className="flex items-center gap-2 cursor-pointer text-base">
+                                        <input
+                                            type="checkbox"
+                                            checked={hostAsPlayer}
+                                            onChange={(e) => setHostAsPlayer(e.target.checked)}
+                                            className="h-4 w-4 rounded bg-primary border-gray-500 text-highlight focus:ring-highlight"
+                                        />
+                                        <span>Join as Player 1</span>
+                                    </label>
+                                </div>
+                                {hostAsPlayer && (
+                                    <div className="mb-3">
+                                        <input
+                                            type="text"
+                                            value={hostPlayerName}
+                                            onChange={(e) => setHostPlayerName(e.target.value)}
+                                            className="w-full p-2 bg-primary rounded-md"
+                                            placeholder="Your Player Name"
+                                        />
+                                    </div>
+                                )}
+                                <p className="text-gray-300">Other players will join using the Game ID after you start hosting.</p>
+                            </div>
+                        ) : (
+                           <>
+                            <div className="space-y-2">
+                            {players.map(player => (
+                                <div key={player.id} className="flex items-center space-x-2 bg-accent p-2 rounded">
+                                    <input type="text" value={player.name} onChange={e => handlePlayerNameChange(player.id, e.target.value)} className="p-2 bg-primary rounded-md flex-grow" placeholder="Player Name"/>
+                                    <button onClick={() => removePlayer(player.id)} className="text-red-500 hover:text-red-400 p-2 rounded-full font-bold">X</button>
+                                </div>
+                            ))}
+                            </div>
+                            <button onClick={addPlayer} disabled={players.length >= MAX_PLAYERS} className="mt-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 rounded-md disabled:bg-gray-500">Add Player Slot</button>
+                           </>
+                        )}
+                    </div>
+                </div>
+            )}
+            
+            {activeTab === 'characters' && (
+                <div className="space-y-4">
+                     {gameData.characters.filter(c => c.id !== 'narrator').map(char => (
+                        <CharacterEditor 
+                            key={char.id}
+                            char={char}
+                            allSprites={gameData.assets.filter(a => a.type === 'characterSprite')}
+                            updateCharacter={updateCharacter}
+                            onDeleteCharacter={handleDeleteCharacter}
+                        />
+                     ))}
+                     <button onClick={addNewCharacter} className="px-4 py-2 bg-blue-600 hover:bg-blue-700 rounded-md">Add New Character</button>
+                </div>
+            )}
+            
+            {activeTab === 'assets' && (
+                <div className="space-y-6">
+                    <div>
+                      <h3 className="font-semibold mb-2 text-highlight">Upload Files</h3>
+                      <div className="flex flex-wrap gap-4">
+                        <label className="px-4 py-2 bg-accent hover:bg-opacity-75 rounded-md cursor-pointer">Upload Background <input type="file" className="hidden" accept="image/*" onChange={e => handleFileChange(e, 'background')} /></label>
+                        <label className="px-4 py-2 bg-accent hover:bg-opacity-75 rounded-md cursor-pointer">Upload Sprite <input type="file" className="hidden" accept="image/*,.webp" onChange={e => handleFileChange(e, 'characterSprite')} /></label>
+                        <label className="px-4 py-2 bg-accent hover:bg-opacity-75 rounded-md cursor-pointer">Upload CG <input type="file" className="hidden" accept="image/*" onChange={e => handleFileChange(e, 'cg')} /></label>
+                      </div>
+                    </div>
+
+                    <div>
+                      <h3 className="font-semibold mb-2 text-highlight">Add from URL</h3>
+                      <div className="bg-accent p-3 rounded-lg">
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-2 items-end">
+                            <div className="md:col-span-2 grid grid-cols-2 gap-2">
+                            <div>
+                                <label htmlFor="asset-url-setup" className="text-xs text-gray-400 block mb-1">Image URL</label>
+                                <input
+                                id="asset-url-setup"
+                                type="url"
+                                value={assetUrl}
+                                onChange={(e) => setAssetUrl(e.target.value)}
+                                placeholder="https://..."
+                                className="w-full p-2 text-sm bg-primary rounded-md"
+                                />
+                            </div>
+                            <div>
+                                <label htmlFor="asset-name-setup" className="text-xs text-gray-400 block mb-1">Asset Name</label>
+                                <input
+                                id="asset-name-setup"
+                                type="text"
+                                value={assetName}
+                                onChange={(e) => setAssetName(e.target.value)}
+                                placeholder="e.g., Cool Castle"
+                                className="w-full p-2 text-sm bg-primary rounded-md"
+                                />
+                            </div>
+                            </div>
+                            <div className="grid grid-cols-2 gap-2">
+                                <div>
+                                    <label htmlFor="asset-type-setup" className="text-xs text-gray-400 block mb-1">Asset Type</label>
+                                    <select
+                                        id="asset-type-setup"
+                                        value={assetType}
+                                        onChange={(e) => setAssetType(e.target.value)}
+                                        className="w-full p-2 text-sm bg-primary rounded-md h-[40px]"
+                                    >
+                                        <option value="background">Background</option>
+                                        <option value="characterSprite">Sprite</option>
+                                        <option value="cg">CG</option>
+                                    </select>
+                                </div>
+                                <button
+                                onClick={handleAddAssetFromUrl}
+                                className="px-4 py-2 bg-highlight text-white font-bold rounded-lg hover:bg-opacity-80 disabled:bg-gray-500 h-[40px]"
+                                >
+                                Add
+                                </button>
+                            </div>
+                        </div>
+                      </div>
+                    </div>
+                    
+                    <div>
+                        <h3 className="font-semibold mb-2 text-highlight">Add from Asset Library</h3>
+                        <PremadeAssetBrowser 
+                           onAddAsset={(asset) => dispatch({ type: 'ADD_ASSET', payload: asset })}
+                           onAddAssetCollection={handleAddAssetCollection}
+                        />
+                    </div>
+
+                     <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-4">
+                        {gameData.assets.map(asset => (
+                            <div key={asset.id} className="bg-accent p-2 rounded-lg relative">
+                                <img src={asset.url} alt={asset.name} className="w-full h-32 object-cover rounded-md mb-2" />
+                                <p className="text-sm truncate" title={asset.name}>{asset.name}</p>
+                                <p className="text-xs text-gray-400 capitalize">{asset.type.replace('Sprite', ' Sprite')}</p>
+                            </div>
+                        ))}
+                    </div>
+                </div>
+            )}
+
+            <div className="mt-8 text-center">
+                 {error && <p className="text-red-500 font-bold mb-4">{error}</p>}
+                <button 
+                    onClick={handleStartGameClick} 
+                    className="px-8 py-4 bg-highlight text-white text-xl font-bold rounded-lg hover:bg-opacity-80 transition-transform hover:scale-105">
+                        {isOnline ? 'Host Game & Get ID' : 'Start Local Game'}
+                </button>
+            </div>
+        </>
+    );
+}
+
+const SetupView = (props) => {
+    const [mode, setMode] = React.useState('menu');
+    const [joinGameId, setJoinGameId] = React.useState('');
+    const [joinPlayerName, setJoinPlayerName] = React.useState('');
+    const [joinError, setJoinError] = React.useState(null);
+
+    const handleJoin = () => {
+        if (joinGameId.trim() && joinPlayerName.trim()) {
+            setJoinError(null);
+            props.onJoinOnlineGame(joinGameId.trim(), joinPlayerName.trim());
+        } else {
+            setJoinError('Please enter your name and a valid Game ID.');
+        }
+    };
+    
+    if (props.gameId && mode === 'host') {
+        return (
+             <div className="bg-secondary p-8 rounded-lg grid md:grid-cols-2 gap-8">
+                <div className="text-center">
+                    <h2 className="text-2xl font-bold text-highlight mb-4">Online Game Hosted!</h2>
+                    <p className="mb-4">Share the Game ID below with your players so they can join.</p>
+                    <div className="bg-primary p-4 rounded-lg">
+                        <p className="text-lg text-gray-400 mb-2">Game ID:</p>
+                        <input 
+                            type="text" 
+                            readOnly 
+                            value={props.gameId} 
+                            className="w-full max-w-sm mx-auto text-center p-2 text-2xl font-mono bg-accent rounded-md"
+                            onFocus={(e) => e.target.select()}
+                        />
+                    </div>
+                    <div className="mt-6 w-full max-w-sm mx-auto">
+                        <h3 className="text-xl font-semibold mb-2">Players Joined ({props.players.length})</h3>
+                        <div className="max-h-48 overflow-y-auto bg-primary p-2 rounded-md space-y-1 text-left">
+                            {props.players.length === 0 ? (
+                                <p className="text-gray-400 italic text-center">Waiting for players...</p>
+                            ) : (
+                                props.players.map(p => (
+                                    <div key={p.id} className="bg-accent p-2 rounded">{p.name}</div>
+                                ))
+                            )}
+                        </div>
+                    </div>
+                    <button
+                        onClick={props.onStartGameForEveryone}
+                        disabled={props.players.length === 0}
+                        className="mt-6 px-8 py-4 bg-highlight text-white text-xl font-bold rounded-lg hover:bg-opacity-80 transition-transform hover:scale-105 disabled:bg-gray-500 disabled:cursor-not-allowed"
+                        title={props.players.length === 0 ? "Waiting for at least one player to join" : "Start the game"}
+                    >
+                        Start Game for Everyone
+                    </button>
+                </div>
+                 <div className="h-[70vh]">
+                     <LobbyChat
+                        chatLog={props.gameData.lobbyChatLog}
+                        onSendMessage={props.onSendLobbyMessage}
+                        canSendMessage={true}
+                        title="Lobby Chat"
+                    />
+                </div>
+            </div>
+        )
+    }
+
+    const renderContent = () => {
+        switch (mode) {
+            case 'local':
+                return <GameSetup {...props} onStartGame={props.onStartLocalGame} isOnline={false} />;
+            case 'host':
+                 return <GameSetup {...props} onStartGame={props.onHostOnlineGame} isOnline={true} />;
+            case 'join':
+                return (
+                    <div className="bg-accent p-8 rounded-lg max-w-md mx-auto">
+                        <h2 className="text-2xl font-bold text-highlight mb-4">Join Online Game</h2>
+                        {joinError && <p className="text-red-500 font-bold text-center mb-4">{joinError}</p>}
+                        <div className="space-y-4">
+                            <input
+                                type="text"
+                                value={joinPlayerName}
+                                onChange={(e) => setJoinPlayerName(e.target.value)}
+                                placeholder="Your Name"
+                                className="w-full p-3 bg-primary rounded-md focus:ring-2 focus:ring-highlight outline-none"
+                            />
+                            <input
+                                type="text"
+                                value={joinGameId}
+                                onChange={(e) => setJoinGameId(e.target.value)}
+                                placeholder="Enter Game ID"
+                                className="w-full p-3 bg-primary rounded-md focus:ring-2 focus:ring-highlight outline-none"
+                            />
+                            <button onClick={handleJoin} className="w-full p-3 bg-highlight text-white font-bold rounded-lg hover:bg-opacity-80">
+                                Join Game
+                            </button>
+                        </div>
+                         <button onClick={() => setMode('menu')} className="text-sm mt-4 text-gray-400 hover:text-white">← Back to menu</button>
+                    </div>
+                );
+            case 'menu':
+            default:
+                return (
+                    <div className="text-center">
+                         <h2 className="text-3xl font-bold text-highlight mb-6">Welcome to the Forge</h2>
+                         <div className="flex flex-col md:flex-row justify-center gap-4">
+                             <button onClick={() => setMode('local')} className="px-8 py-4 bg-blue-600 text-white text-xl font-bold rounded-lg hover:bg-blue-700 transition-transform hover:scale-105">
+                                Start Local Game
+                            </button>
+                            <button onClick={() => setMode('host')} className="px-8 py-4 bg-purple-600 text-white text-xl font-bold rounded-lg hover:bg-purple-700 transition-transform hover:scale-105">
+                                Host Online Game
+                            </button>
+                             <button onClick={() => setMode('join')} className="px-8 py-4 bg-green-600 text-white text-xl font-bold rounded-lg hover:bg-green-700 transition-transform hover:scale-105">
+                                Join Online Game
+                            </button>
+                         </div>
+                    </div>
+                );
+        }
+    }
+    
+    return <div className="bg-secondary p-6 rounded-lg relative">{renderContent()}</div>;
+}
+
+// --- FROM components/GameView.tsx ---
+const Visuals = ({ scene, characters, assets, onClick, isPlayingBack }) => {
+    const findAssetUrl = (assetId) => {
+        if (!assetId) return null;
+        const asset = assets.find(a => a.id === assetId);
+        return asset ? asset.url : null;
+    }
+
+    const bgUrl = scene.backgroundUrl;
+    const cgUrl = scene.cgUrl;
+
+    const activeSprites = Object.entries(scene.sprites)
+      .map(([charId, assetId]) => {
+        const url = findAssetUrl(assetId);
+        const character = characters.find(c => c.id === charId);
+        return url && character ? { url, name: character.name } : null;
+      })
+      .filter((s) => s !== null);
+
+    return (
+        <div onClick={onClick} className={`aspect-video bg-black rounded-lg shadow-2xl overflow-hidden relative flex-1 transition-all duration-500 ${isPlayingBack ? 'cursor-pointer' : ''}`}>
+             {bgUrl && <img src={bgUrl} alt="background" className="absolute top-0 left-0 w-full h-full object-cover transition-opacity duration-1000" style={{opacity: bgUrl ? 1 : 0}} />}
+             
+             <div className="absolute bottom-0 left-0 w-full h-4/5 flex justify-center items-end">
+                {activeSprites.map((sprite, index) => (
+                    <img key={index} src={sprite.url} alt={sprite.name} className="h-full object-contain transition-all duration-500 mx-4" />
+                ))}
+             </div>
+             
+             {cgUrl && <img src={cgUrl} alt="cg" className="absolute top-0 left-0 w-full h-full object-contain bg-black bg-opacity-75 transition-opacity duration-500" style={{opacity: cgUrl ? 1 : 0}} />}
+
+             {scene.dialogue && (
+                <div className="absolute bottom-0 left-0 w-full bg-black bg-opacity-70 p-4 border-t-2 border-accent">
+                    <p className="font-bold text-highlight mb-1">{scene.dialogue.characterName}</p>
+                    <p className="text-lg text-light leading-snug">{scene.dialogue.text}</p>
+                </div>
+             )}
+             {isPlayingBack && (
+                <div className="absolute bottom-4 right-4 text-white bg-black bg-opacity-50 rounded-full p-2 animate-pulse">
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                    </svg>
+                </div>
+            )}
+        </div>
+    );
+};
+
+const HistoryLogContent = ({ gameData }) => {
+    const logEndRef = React.useRef(null);
+    React.useEffect(() => {
+        logEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    }, [gameData.storyLog]);
+
+    const getCharacter = (id) => gameData.characters.find(c => c.id === id);
+
+    return (
+        <div className="flex-1 overflow-y-auto space-y-3 pr-2">
+            {gameData.storyLog.map((log, index) => {
+                let content;
+                switch (log.type) {
+                    case 'dialogue':
+                        content = <p><span className="font-bold text-blue-400">{getCharacter(log.characterId)?.name || 'Unknown'}:</span> {log.text}</p>;
+                        break;
+                    case 'choice':
+                        content = (
+                            <div className="bg-accent p-2 rounded-md my-2">
+                                <p className="font-semibold text-purple-400">Choices appeared:</p>
+                                <ul className="list-disc pl-5">
+                                    {(log.choices || []).map((c, i) => <li key={i}>{c.text}</li>)}
+                                </ul>
+                            </div>
+                        );
+                        break;
+                    case 'choice_selection':
+                        content = (
+                            <p className="text-yellow-400 italic">
+                                {getCharacter(log.characterId)?.name || 'A player'} chose: "{log.text}"
+                            </p>
+                        );
+                        break;
+                    case 'dice_roll':
+                        content = <p className="text-gray-400 italic">{getCharacter(log.characterId)?.name} rolled a d{log.sides} and got: <span className="font-bold text-white">{log.result}</span></p>
+                        break;
+                    case 'quest_status':
+                        content = <p className="text-green-400 font-semibold">{log.text}</p>
+                        break;
+                    case 'stat_change':
+                        content = <p className="text-teal-400 italic">{log.text}</p>
+                        break;
+                    default:
+                        content = null;
+                }
+                return <div key={index}>{content}</div>;
+            })}
+            <div ref={logEndRef} />
+        </div>
+    );
+};
+
+const StatusContent = ({gameData}) => {
+    return (
+        <div className="flex-1 overflow-y-auto pr-2">
+            <div className="mb-4">
+                <h3 className="font-bold text-purple-400 mb-2">Party Coins: <span className="text-yellow-400">{gameData.coins} 💰</span></h3>
+            </div>
+            
+            <div className="mb-4">
+                <h3 className="font-bold text-purple-400 mb-2">Character Stats</h3>
+                <div className="space-y-3">
+                {gameData.characters.filter(c => c.id !== 'narrator').map(char => (
+                    <div key={char.id} className="bg-accent p-2 rounded-lg">
+                        <div className="flex justify-between items-center mb-1">
+                             <p className="font-semibold">{char.name}</p>
+                        </div>
+                       
+                        <div title="Health">
+                            <span className="text-xs text-red-400">HP</span>
+                            <div className="w-full bg-primary rounded-full h-2.5">
+                                <div className="bg-red-600 h-2.5 rounded-full" style={{width: `${(char.health / char.maxHealth) * 100}%`}}></div>
+                            </div>
+                            <span className="text-xs">{char.health} / {char.maxHealth}</span>
+                        </div>
+                         <div title="Mana">
+                            <span className="text-xs text-blue-400">MP</span>
+                            <div className="w-full bg-primary rounded-full h-2.5">
+                                <div className="bg-blue-600 h-2.5 rounded-full" style={{width: `${(char.mana / char.maxMana) * 100}%`}}></div>
+                            </div>
+                            <span className="text-xs">{char.mana} / {char.maxMana}</span>
+                        </div>
+                    </div>
+                ))}
+                </div>
+            </div>
+
+            <div>
+                <h3 className="font-bold text-purple-400 mb-2">Quest Log</h3>
+                <div className="space-y-2">
+                    {gameData.quests.map(quest => (
+                        <details key={quest.id} className="bg-accent p-2 rounded-lg text-sm">
+                            <summary className="cursor-pointer font-semibold">
+                                {quest.title} <span className={`text-xs ${quest.status === 'completed' ? 'text-green-400' : 'text-yellow-400'}`}>({quest.status})</span>
+                            </summary>
+                            <p className="text-xs text-gray-300 mt-1">{quest.description}</p>
+                        </details>
+                    ))}
+                     {gameData.quests.length === 0 && <p className="text-xs text-gray-400 italic">No active quests.</p>}
+                </div>
+            </div>
+        </div>
+    );
+}
+
+const InputController = ({ dispatch, gameData, onEndTurn, isMyTurn, currentPlayer, currentPlayerIndex, onSceneChange, isPlayingBack }) => {
+    const [dialogue, setDialogue] = React.useState('');
+    const [choices, setChoices] = React.useState([]);
+    const [stagedSceneChanges, setStagedSceneChanges] = React.useState([]);
+    const [speakingCharacterId, setSpeakingCharacterId] = React.useState(NARRATOR_CHARACTER.id);
+    const [diceSides, setDiceSides] = React.useState(20);
+
+    React.useEffect(() => {
+        setSpeakingCharacterId(NARRATOR_CHARACTER.id);
+    }, [currentPlayer?.id]);
+
+    const speakingCharacter = gameData.characters.find(c => c.id === speakingCharacterId);
+    
+    const lastLog = gameData.storyLog[gameData.storyLog.length - 1];
+    const choicesToShow = lastLog?.type === 'choice' ? lastLog.choices : null;
+
+    const handleAddChoice = () => setChoices([...choices, {text: ''}]);
+    const handleRemoveChoice = (index) => setChoices(choices.filter((_, i) => i !== index));
+    const handleChoiceChange = (index, text) => {
+        const newChoices = [...choices];
+        newChoices[index].text = text;
+        setChoices(newChoices);
+    }
+    
+    const handleEndTurn = () => {
+        const logsToDispatch = [...stagedSceneChanges];
+
+        if (dialogue.trim()) {
+            logsToDispatch.push({ type: 'dialogue', characterId: speakingCharacterId, text: dialogue.trim() });
+        }
+
+        const validChoices = choices.filter(c => c.text.trim());
+        if (validChoices.length > 0) {
+            logsToDispatch.push({ type: 'choice', choices: validChoices });
+        }
+
+        logsToDispatch.forEach(log => dispatch({ type: 'ADD_LOG_ENTRY', payload: log }));
+        
+        setDialogue('');
+        setChoices([]);
+        setStagedSceneChanges([]);
+        onEndTurn();
+    }
+    
+    const handleChoiceSelection = (choiceText) => {
+        dispatch({ type: 'ADD_LOG_ENTRY', payload: { type: 'choice_selection', playerId: currentPlayer.id, characterId: speakingCharacterId, text: choiceText } });
+        onEndTurn();
+    }
+
+    const handleSceneChange = (type, assetId) => {
+        if (!speakingCharacter) return;
+
+        const finalAssetId = assetId || null;
+        let newLogEntry = null;
+        let sceneUpdate = {};
+        const assetUrl = gameData.assets.find(a => a.id === finalAssetId)?.url || null;
+
+        switch(type) {
+            case 'background':
+                newLogEntry = { type: 'background_change', assetId: finalAssetId };
+                sceneUpdate = { backgroundUrl: assetUrl };
+                break;
+            case 'cg':
+                newLogEntry = { type: 'cg_show', assetId: finalAssetId };
+                sceneUpdate = { cgUrl: assetUrl };
+                break;
+            case 'sprite':
+                newLogEntry = { type: 'sprite_change', characterId: speakingCharacterId, assetId: finalAssetId };
+                sceneUpdate = { sprites: { [speakingCharacterId]: finalAssetId } };
+                break;
+        }
+
+        if (newLogEntry) {
+            onSceneChange(sceneUpdate);
+
+            const finalNewLogEntry = newLogEntry;
+            setStagedSceneChanges(prev => {
+                const filtered = prev.filter(c => {
+                    if (c.type !== finalNewLogEntry.type) return true;
+                    if (c.type === 'sprite_change' && finalNewLogEntry.type === 'sprite_change') {
+                        return c.characterId !== finalNewLogEntry.characterId;
+                    }
+                    return false;
+                });
+                return [...filtered, finalNewLogEntry];
+            });
+        }
+    };
+    
+    const handleDiceRoll = () => {
+        const validSides = Math.max(1, diceSides);
+        const result = Math.floor(Math.random() * validSides) + 1;
+        dispatch({ type: 'ADD_LOG_ENTRY', payload: {
+            type: 'dice_roll',
+            characterId: speakingCharacterId,
+            sides: validSides,
+            result: result,
+        }});
+    };
+
+    if (!isMyTurn) {
+        if (isPlayingBack) {
+            return <div className="bg-secondary p-4 rounded-lg mt-4 text-center text-gray-400">Playing back story... (Click visual to advance)</div>;
+        }
+        return (
+            <div className="bg-secondary p-4 rounded-lg mt-4 text-center">
+                <p className="text-xl text-gray-400">
+                    {`Player ${currentPlayerIndex + 1}'s Turn: `}
+                    <span className="text-highlight font-bold">{currentPlayer?.name || '...'}</span>
+                </p>
+                <p className="font-bold text-2xl animate-pulse text-light mt-2">Please Wait!</p>
+            </div>
+        );
+    }
+    
+    if (!speakingCharacter) return <div className="bg-secondary p-4 rounded-lg mt-4 text-center text-red-500">Error: Selected character not found.</div>;
+    if (!currentPlayer) return <div className="bg-secondary p-4 rounded-lg mt-4 text-center text-red-500">Error: Current player not found.</div>;
+
+
+    const publishedAssets = gameData.assets.filter(a => a.isPublished);
+    const charSprites = publishedAssets.filter(a => (speakingCharacter.spriteAssetIds || []).includes(a.id));
+
+    return (
+        <div className="bg-secondary p-4 rounded-lg mt-4">
+             <p className="font-bold text-xl mb-2">Your Turn! (<span className="text-highlight">{currentPlayer.name}</span>)</p>
+             {choicesToShow ? (
+                <div>
+                    <p className="text-lg mb-2">You must make a choice:</p>
+                    <div className="mb-4">
+                        <label htmlFor="choose-as-select" className="block text-sm font-semibold text-gray-400 mb-1">Choose as</label>
+                        <select
+                            id="choose-as-select"
+                            value={speakingCharacterId}
+                            onChange={(e) => setSpeakingCharacterId(e.target.value)}
+                            className="w-full p-2 bg-accent rounded-md focus:ring-2 focus:ring-highlight outline-none"
+                        >
+                            {gameData.characters.map((char) => (
+                                <option key={char.id} value={char.id}>
+                                    {char.name}
+                                </option>
+                            ))}
+                        </select>
+                    </div>
+                    <div className="flex flex-col space-y-2">
+                        {choicesToShow.map((choice, index) => (
+                            <button key={index} onClick={() => handleChoiceSelection(choice.text)} className="w-full p-3 bg-accent rounded-md text-lg text-left hover:bg-highlight">
+                                {choice.text}
+                            </button>
+                        ))}
+                    </div>
+                </div>
+             ) : (
+                <>
+                    <div className="flex flex-col md:flex-row gap-4 mb-4">
+                        <details className="flex-1">
+                            <summary className="cursor-pointer text-gray-400 hover:text-white">Scene Controls</summary>
+                            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 mt-2 p-2 bg-primary rounded-md">
+                                <select onChange={e => handleSceneChange('background', e.target.value)} className="p-2 bg-accent rounded-md"><option value="">- Clear BG -</option>{publishedAssets.filter(a => a.type === 'background').map(a => <option key={a.id} value={a.id}>{a.name}</option>)}</select>
+                                <select onChange={e => handleSceneChange('sprite', e.target.value)} className="p-2 bg-accent rounded-md" disabled={speakingCharacter.id === 'narrator'}><option value="">- Clear Sprite -</option>{charSprites.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}</select>
+                                <select onChange={e => handleSceneChange('cg', e.target.value)} className="p-2 bg-accent rounded-md"><option value="">- Clear CG -</option>{publishedAssets.filter(a => a.type === 'cg').map(a => <option key={a.id} value={a.id}>{a.name}</option>)}</select>
+                            </div>
+                        </details>
+                        <details className="flex-1">
+                            <summary className="cursor-pointer text-gray-400 hover:text-white">Dice Roller</summary>
+                            <div className="flex items-center gap-2 mt-2 p-2 bg-primary rounded-md">
+                                <span className="font-bold">d</span>
+                                <input type="number" value={diceSides} onChange={e => setDiceSides(parseInt(e.target.value) || 1)} className="w-20 p-1 bg-accent rounded-md" />
+                                <button onClick={handleDiceRoll} className="px-4 py-1 bg-purple-600 hover:bg-purple-700 rounded-md">Roll</button>
+                            </div>
+                        </details>
+                    </div>
+                    
+                    <div className="mb-4">
+                        <label htmlFor="speak-as-select" className="block text-sm font-semibold text-gray-400 mb-1">Speak As</label>
+                        <select
+                            id="speak-as-select"
+                            value={speakingCharacterId}
+                            onChange={(e) => setSpeakingCharacterId(e.target.value)}
+                            className="w-full p-2 bg-accent rounded-md focus:ring-2 focus:ring-highlight outline-none"
+                        >
+                            {gameData.characters.map((char) => (
+                                <option key={char.id} value={char.id}>
+                                    {char.name}
+                                </option>
+                            ))}
+                        </select>
+                    </div>
+
+                    <input type="text" value={dialogue} onChange={e => setDialogue(e.target.value)} placeholder={`What does ${speakingCharacter.name} say or do?`} className="w-full p-2 bg-accent rounded-md focus:ring-2 focus:ring-highlight outline-none" />
+
+                    <div className="mt-4">
+                        <p className="text-sm text-gray-400">Optionally, add choices for the next player:</p>
+                        {choices.map((choice, index) => (
+                            <div key={index} className="flex items-center space-x-2 mt-1">
+                                <input type="text" value={choice.text} onChange={e => handleChoiceChange(index, e.target.value)} placeholder={`Choice ${index + 1}`} className="w-full p-2 bg-accent rounded-md"/>
+                                <button onClick={() => handleRemoveChoice(index)} className="text-red-500 hover:text-red-400 p-2 rounded-full font-bold">X</button>
+                            </div>
+                        ))}
+                        <button onClick={handleAddChoice} className="text-xs px-2 py-1 mt-1 bg-accent rounded-md hover:bg-opacity-75">+ Add Choice</button>
+                    </div>
+                    <button onClick={handleEndTurn} className="w-full mt-4 p-3 bg-highlight rounded-md text-lg font-bold hover:bg-opacity-80">Apply & End Turn</button>
+                </>
+             )}
+        </div>
+    )
+}
+
+const GameView = ({ gameData, dispatch, players, currentPlayer, currentPlayerIndex, onEndTurn, gameMode, myPlayerId }) => {
+    const [baseScene, setBaseScene] = React.useState({ backgroundUrl: null, cgUrl: null, sprites: {}, dialogue: null });
+    const [stagedScene, setStagedScene] = React.useState({});
+    const [activeSideTab, setActiveSideTab] = React.useState('history');
+    
+    const isOnlineGame = gameMode === 'online-player' || gameMode === 'online-gm';
+    const isMyTurn = (gameMode === 'local' && players.length > 0) || (isOnlineGame && !!myPlayerId && currentPlayer?.id === myPlayerId);
+    const isSpectatingGm = gameMode === 'online-gm' && !myPlayerId;
+    
+    const [playbackState, setPlaybackState] = React.useState('idle');
+    const [playbackLogIndex, setPlaybackLogIndex] = React.useState(0); 
+    const [logsToPlay, setLogsToPlay] = React.useState([]);
+    const turnStarted = React.useRef(false);
+
+    const findAssetUrl = React.useCallback((id) => gameData.assets.find(a => a.id === id)?.url || null, [gameData.assets]);
+
+    const handleSceneChange = React.useCallback((change) => {
+        setStagedScene(prev => {
+            const newSprites = change.sprites ? {...prev.sprites, ...change.sprites} : prev.sprites;
+            return {...prev, ...change, sprites: newSprites};
+        });
+    }, []);
+
+    const combinedScene = { ...baseScene, ...stagedScene, sprites: {...baseScene.sprites, ...stagedScene.sprites} };
+
+    const reduceScene = React.useCallback((log, currentScene) => {
+        const newScene = { ...currentScene, sprites: {...currentScene.sprites} };
+        const assetId = 'assetId' in log ? log.assetId : null;
+        switch (log.type) {
+            case 'background_change': newScene.backgroundUrl = findAssetUrl(assetId); break;
+            case 'sprite_change': newScene.sprites[log.characterId] = assetId; break;
+            case 'cg_show': newScene.cgUrl = findAssetUrl(assetId); break;
+        }
+        return newScene;
+    }, [findAssetUrl]);
+
+    React.useEffect(() => {
+        turnStarted.current = false;
+        setStagedScene({});
+    }, [currentPlayer]);
+
+    React.useEffect(() => {
+        if (turnStarted.current) return;
+        turnStarted.current = true;
+        
+        const playerForLog = (gameMode === 'online-player') 
+            ? players.find(p => p.id === myPlayerId) || { lastSeenLogIndex: 0 }
+            : currentPlayer;
+        
+        const lastSeenIndex = playerForLog?.lastSeenLogIndex || 0;
+
+        let initialSceneState = { backgroundUrl: null, cgUrl: null, sprites: {}, dialogue: null };
+        for(const log of gameData.storyLog.slice(0, lastSeenIndex)) {
+            initialSceneState = reduceScene(log, initialSceneState);
+        }
+        setBaseScene(initialSceneState);
+
+        const logsForCatchUp = gameData.storyLog.slice(lastSeenIndex);
+        if (logsForCatchUp.length > 0) {
+            setLogsToPlay(logsForCatchUp);
+            setPlaybackLogIndex(0);
+            setPlaybackState('playing');
+        } else {
+            setPlaybackState('idle');
+            setLogsToPlay([]);
+        }
+    }, [gameData.storyLog, currentPlayer, reduceScene, gameMode, myPlayerId, players]);
+    
+    React.useEffect(() => {
+        if (playbackState !== 'playing') return;
+
+        if (playbackLogIndex >= logsToPlay.length) {
+            setBaseScene(prev => {
+                let finalScene = {...prev};
+                logsToPlay.forEach(log => finalScene = reduceScene(log, finalScene));
+                return {...finalScene, dialogue: null};
+            });
+            setPlaybackState('idle');
+            setLogsToPlay([]);
+            return;
+        }
+        
+        let sceneUpdate = { ...baseScene };
+        let dialogueToShow = null;
+
+        for (let i = playbackLogIndex; i < logsToPlay.length; i++) {
+            const log = logsToPlay[i];
+            
+            if (log.type === 'dialogue' || log.type === 'choice_selection') {
+                const char = gameData.characters.find(c => c.id === log.characterId);
+                dialogueToShow = { characterName: char?.name || 'Unknown', text: log.text };
+                break;
+            } else if (log.type === 'choice') {
+                break;
+            }
+            sceneUpdate = reduceScene(log, sceneUpdate);
+        }
+        setBaseScene({ ...sceneUpdate, dialogue: dialogueToShow });
+
+    }, [playbackState, playbackLogIndex, logsToPlay, gameData.characters, reduceScene, baseScene]);
+
+    const handlePlaybackAdvance = () => {
+        if (playbackState !== 'playing' || playbackLogIndex >= logsToPlay.length) return;
+        
+        let nextIndex = playbackLogIndex;
+        for (let i = playbackLogIndex; i < logsToPlay.length; i++) {
+            const log = logsToPlay[i];
+            nextIndex = i;
+            if (log.type === 'dialogue' || log.type === 'choice' || log.type === 'choice_selection') {
+                break;
+            }
+        }
+        setPlaybackLogIndex(nextIndex + 1);
+    };
+
+    const canSendMessage = !isSpectatingGm && (players.length > 0 || gameMode === 'online-player');
+
+    const getSender = React.useCallback(() => {
+        if (gameMode === 'local') {
+            return { id: currentPlayer?.id, name: currentPlayer?.name };
+        }
+        if (myPlayerId) {
+            const me = players.find(p => p.id === myPlayerId);
+            return { id: me?.id, name: me?.name };
+        }
+        return { id: null, name: null };
+    }, [gameMode, currentPlayer, myPlayerId, players]);
+
+    const handleSendChatMessage = React.useCallback((messageText) => {
+        const sender = getSender();
+        if (!canSendMessage || !sender.id || !sender.name) return;
+        
+        const newMessage = {
+            senderId: sender.id,
+            senderName: sender.name,
+            text: messageText,
+            timestamp: Date.now()
+        };
+
+        dispatch({ type: 'ADD_CHAT_MESSAGE', payload: newMessage });
+    }, [dispatch, canSendMessage, getSender]);
+
+
+    return (
+        <div>
+            <div className="flex flex-col md:flex-row gap-4">
+                <div className="w-full md:w-2/3">
+                    <Visuals 
+                      scene={combinedScene} 
+                      characters={gameData.characters} 
+                      assets={gameData.assets} 
+                      onClick={handlePlaybackAdvance}
+                      isPlayingBack={playbackState === 'playing'}
+                    />
+                </div>
+                <div className="w-full md:w-1/3 bg-secondary p-4 rounded-lg flex flex-col h-[75vh]">
+                    <div className="flex border-b border-accent mb-2">
+                        <button onClick={() => setActiveSideTab('history')} className={`px-4 py-1 ${activeSideTab === 'history' ? 'text-highlight border-b-2 border-highlight' : 'text-light'}`}>History</button>
+                        <button onClick={() => setActiveSideTab('status')} className={`px-4 py-1 ${activeSideTab === 'status' ? 'text-highlight border-b-2 border-highlight' : 'text-light'}`}>Status & Quests</button>
+                    </div>
+                    {activeSideTab === 'history' && <HistoryLogContent gameData={gameData} />}
+                    {activeSideTab === 'status' && <StatusContent gameData={gameData} />}
+                </div>
+            </div>
+            {!isSpectatingGm ? (
+              <InputController 
+                  dispatch={dispatch}
+                  gameData={gameData}
+                  onEndTurn={onEndTurn}
+                  isMyTurn={isMyTurn}
+                  currentPlayer={currentPlayer}
+                  currentPlayerIndex={currentPlayerIndex}
+                  onSceneChange={handleSceneChange}
+                  isPlayingBack={playbackState === 'playing'}
+              />
+            ) : (
+                <div className="bg-secondary p-4 rounded-lg mt-4 text-center text-gray-400">
+                    You are spectating as the Game Master.
+                </div>
+            )}
+            <ChatView
+                chatLog={gameData.chatLog}
+                onSendMessage={handleSendChatMessage}
+                canSendMessage={canSendMessage}
+            />
+        </div>
+    );
+};
+
+// --- FROM components/GMMenu.tsx ---
+const GMMenu = ({ isOpen, onClose, gameData, dispatch, players, setPlayers, gameId }) => {
+    const [activeTab, setActiveTab] = React.useState('game');
+    const [assetUrl, setAssetUrl] = React.useState('');
+    const [assetName, setAssetName] = React.useState('');
+    const [assetType, setAssetType] = React.useState('background');
+    const [isExporting, setIsExporting] = React.useState(false);
+    const [exportProgress, setExportProgress] = React.useState(0);
+    const canvasRef = React.useRef(null);
+    const [timingBaseSeconds, setTimingBaseSeconds] = React.useState(2.5);
+    const [timingSecondsPerWord, setTimingSecondsPerWord] = React.useState(0.25);
+    const [videoQuality, setVideoQuality] = React.useState('high');
+    const [newQuestTitle, setNewQuestTitle] = React.useState('');
+    const [newQuestDesc, setNewQuestDesc] = React.useState('');
+    const [newQuestAssignee, setNewQuestAssignee] = React.useState('null');
+    const [newQuestCoins, setNewQuestCoins] = React.useState(0);
+    
+    const VIDEO_QUALITY_BITRATES = {
+        low: 1_000_000, 
+        medium: 2_500_000,
+        high: 5_000_000,
+        ultra: 8_000_000,
+    };
+
+    function wrapText(context, text, x, y, maxWidth, lineHeight) {
+        const words = text.split(' ');
+        let line = '';
+        for (let n = 0; n < words.length; n++) {
+            const testLine = line + words[n] + ' ';
+            const metrics = context.measureText(testLine);
+            const testWidth = metrics.width;
+            if (testWidth > maxWidth && n > 0) {
+                context.fillText(line, x, y);
+                line = words[n] + ' ';
+                y += lineHeight;
+            } else {
+                line = testLine;
+            }
+        }
+        context.fillText(line, x, y);
+    }
+
+    async function drawSceneOnCanvas(ctx, canvas, scene, loadedImages) {
+        ctx.fillStyle = '#000000';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+        if (scene.backgroundUrl) {
+            const bgImg = loadedImages.get(scene.backgroundUrl);
+            if (bgImg) ctx.drawImage(bgImg, 0, 0, canvas.width, canvas.height);
+        }
+
+        const activeSprites = Object.values(scene.sprites)
+            .map(spriteInfo => loadedImages.get(spriteInfo.url || ''))
+            .filter((img) => !!img);
+        
+        if (activeSprites.length > 0) {
+            const spriteContainerHeight = canvas.height * 0.8;
+            const scaledSprites = activeSprites.map(img => {
+                const scale = spriteContainerHeight / img.naturalHeight;
+                return { img, width: img.naturalWidth * scale, height: spriteContainerHeight };
+            });
+
+            const totalWidth = scaledSprites.reduce((sum, s) => sum + s.width, 0);
+            let currentX = (canvas.width - totalWidth) / 2;
+            const yPos = canvas.height - spriteContainerHeight;
+            
+            for (const sprite of scaledSprites) {
+                ctx.drawImage(sprite.img, currentX, yPos, sprite.width, sprite.height);
+                currentX += sprite.width;
+            }
+        }
+
+        if (scene.cgUrl) {
+            const cgImg = loadedImages.get(scene.cgUrl);
+            if (cgImg) {
+                ctx.fillStyle = 'rgba(0,0,0,0.75)';
+                ctx.fillRect(0, 0, canvas.width, canvas.height);
+                const canvasAspect = canvas.width / canvas.height;
+                const imgAspect = cgImg.naturalWidth / cgImg.naturalHeight;
+                let drawWidth = canvas.width;
+                let drawHeight = canvas.height;
+                if (imgAspect > canvasAspect) {
+                    drawHeight = canvas.width / imgAspect;
+                } else {
+                    drawWidth = canvas.height * imgAspect;
+                }
+                const drawX = (canvas.width - drawWidth) / 2;
+                const drawY = (canvas.height - drawHeight) / 2;
+                ctx.drawImage(cgImg, drawX, drawY, drawWidth, drawHeight);
+            }
+        }
+
+        if (scene.dialogue) {
+            ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
+            ctx.fillRect(0, canvas.height * 0.7, canvas.width, canvas.height * 0.3);
+            
+            const padding = 20;
+            const x = padding;
+            const yName = canvas.height * 0.7 + padding + 24;
+            const yText = yName + 40;
+            
+            ctx.fillStyle = '#e94560';
+            ctx.font = 'bold 28px Inter, sans-serif';
+            ctx.textBaseline = 'top';
+            ctx.fillText(scene.dialogue.characterName, x, yName);
+
+            ctx.fillStyle = '#dcdcdc';
+            ctx.font = '24px Inter, sans-serif';
+            wrapText(ctx, scene.dialogue.text, x, yText, canvas.width - (padding * 2), 30);
+        }
+    }
+    
+    const handlePlayerNameChange = (id, name) => {
+        setPlayers(players.map(p => p.id === id ? {...p, name} : p));
+    }
+    const addPlayer = () => {
+        if (players.length < MAX_PLAYERS) {
+            const newPlayer = { id: `p-${Date.now()}`, name: `Player ${players.length + 1}`, lastSeenLogIndex: 0 };
+            setPlayers([...players, newPlayer]);
+        }
+    }
+    const removePlayer = (id) => {
+        const playerToRemove = players.find(p => p.id === id);
+        const playerName = playerToRemove?.name || 'this player';
+        
+        if (window.confirm(`Are you sure you want to remove ${playerName}?`)) {
+            if (playerToRemove) {
+                dispatch({
+                    type: 'ADD_LOG_ENTRY',
+                    payload: {
+                        type: 'stat_change',
+                        text: `(${playerToRemove.name}) Has Left the Game!`
+                    }
+                });
+            }
+            setPlayers(players.filter(p => p.id !== id));
+        }
+    }
+
+    const handleFileChange = (event, type) => {
+        const file = event.target.files?.[0];
+        if (file) {
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                const url = e.target?.result;
+                dispatch({ type: 'ADD_ASSET', payload: { type, url, name: file.name, isPublished: true } });
+            };
+            reader.readAsDataURL(file);
+        }
+        event.target.value = '';
+    };
+
+    const handleAddAssetFromUrl = () => {
+        if (!assetUrl.trim() || !assetName.trim()) {
+          alert('Please provide a valid URL and a name for the asset.');
+          return;
+        }
+        try {
+          new URL(assetUrl);
+        } catch (_) {
+          alert('Please enter a valid URL.');
+          return;
+        }
+
+        dispatch({ type: 'ADD_ASSET', payload: { url: assetUrl, name: assetName, type: assetType, isPublished: true } });
+        setAssetUrl('');
+        setAssetName('');
+    };
+
+    const handleAddAssetCollection = (assets) => {
+        dispatch({ type: 'BATCH_ADD_ASSETS', payload: assets.map(a => ({ ...a, isPublished: true })) });
+    };
+
+    const addNewCharacter = () => {
+        dispatch({ type: 'ADD_CHARACTER', payload: { name: 'New Character', bio: '', spriteAssetIds: [] } });
+    }
+
+    const updateCharacter = (character) => {
+        dispatch({ type: 'UPDATE_CHARACTER', payload: character });
+    }
+
+    const handleDeleteCharacter = (e) => {
+        const id = e.currentTarget.dataset.id;
+        if (id && window.confirm('Are you sure you want to delete this character?')) {
+            dispatch({ type: 'DELETE_CHARACTER', payload: { id } });
+        }
+    };
+    
+    const handleAddQuest = () => {
+        if (!newQuestTitle.trim()) {
+            alert("Quest title cannot be empty.");
+            return;
+        }
+        const questPayload = {
+            title: newQuestTitle,
+            description: newQuestDesc,
+            assignedCharacterId: newQuestAssignee === 'null' ? null : newQuestAssignee,
+            rewards: {
+                coins: newQuestCoins,
+            }
+        };
+        dispatch({ type: 'ADD_QUEST', payload: questPayload });
+        dispatch({ type: 'ADD_LOG_ENTRY', payload: {type: 'quest_status', text: `New Quest Added: ${newQuestTitle}`}});
+        
+        setNewQuestTitle('');
+        setNewQuestDesc('');
+        setNewQuestAssignee('null');
+        setNewQuestCoins(0);
+    };
+    
+    const handleUpdateQuestStatus = (id, status) => {
+        dispatch({type: 'UPDATE_QUEST', payload: {id, status}});
+    }
+
+    const findAssetUrl = React.useCallback((id) => gameData.assets.find(a => a.id === id)?.url || null, [gameData.assets]);
+
+    const reduceScene = React.useCallback((log, currentScene) => {
+        const newScene = { ...currentScene, sprites: { ...currentScene.sprites } };
+        switch (log.type) {
+            case 'background_change': 
+                newScene.backgroundUrl = findAssetUrl(log.assetId); 
+                break;
+            case 'sprite_change': 
+                 newScene.sprites[log.characterId] = { assetId: log.assetId, url: findAssetUrl(log.assetId) };
+                 break;
+            case 'cg_show': 
+                newScene.cgUrl = findAssetUrl(log.assetId); 
+                break;
+        }
+        return newScene;
+    }, [findAssetUrl]);
+    
+    const handleExportVideo = async () => {
+        setIsExporting(true);
+        setExportProgress(0);
+
+        const canvas = canvasRef.current;
+        if (!canvas) {
+            alert('Canvas element not found.');
+            setIsExporting(false);
+            return;
+        }
+        canvas.width = 1280;
+        canvas.height = 720;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) {
+            alert('Could not get canvas context.');
+            setIsExporting(false);
+            return;
+        }
+
+        try {
+            setExportProgress(5);
+            const imageUrls = new Set(gameData.assets.map(a => a.url));
+            const loadedImages = new Map();
+            const promises = Array.from(imageUrls).map(url => new Promise((resolve, reject) => {
+                const img = new Image();
+                img.crossOrigin = "anonymous";
+                if (url.startsWith('data:')) {
+                    img.src = url;
+                } else {
+                    const cleanUrl = url.replace(/^https?:\/\//, '');
+                    img.src = `https://images.weserv.nl/?url=${encodeURIComponent(cleanUrl)}`;
+                }
+                img.onload = () => { loadedImages.set(url, img); resolve(); };
+                img.onerror = () => reject(new Error(`Failed to load image: ${url}`));
+            }));
+            await Promise.all(promises);
+            setExportProgress(10);
+            
+            const stream = canvas.captureStream(24);
+            const bitrate = VIDEO_QUALITY_BITRATES[videoQuality];
+            const recorder = new MediaRecorder(stream, { 
+                mimeType: 'video/webm',
+                videoBitsPerSecond: bitrate,
+            });
+            const chunks = [];
+            recorder.ondataavailable = (e) => { if (e.data.size > 0) chunks.push(e.data); };
+            recorder.onstop = () => {
+                const videoBlob = new Blob(chunks, { type: 'video/webm' });
+                const videoUrl = URL.createObjectURL(videoBlob);
+                const a = document.createElement('a');
+                a.href = videoUrl;
+                a.download = 'visual-novel-replay.mp4';
+                document.body.appendChild(a);
+                a.click();
+                window.URL.revokeObjectURL(videoUrl);
+                document.body.removeChild(a);
+                setIsExporting(false);
+                setExportProgress(100);
+            };
+            recorder.start();
+
+            let currentScene = { backgroundUrl: null, cgUrl: null, sprites: {}, dialogue: null };
+            let sceneChangesSinceLastPause = false;
+
+            for (let i = 0; i < gameData.storyLog.length; i++) {
+                const log = gameData.storyLog[i];
+
+                if (log.type === 'background_change' || log.type === 'sprite_change' || log.type === 'cg_show') {
+                    currentScene = reduceScene(log, currentScene);
+                    sceneChangesSinceLastPause = true;
+                } else if (log.type === 'dialogue' || log.type === 'choice_selection') {
+                    if (sceneChangesSinceLastPause) {
+                        await drawSceneOnCanvas(ctx, canvas, { ...currentScene, dialogue: null }, loadedImages);
+                        await new Promise(res => setTimeout(res, 500));
+                        sceneChangesSinceLastPause = false;
+                    }
+
+                    let dialogueText = "";
+                    let dialogueToShow = null;
+                    if (log.type === 'dialogue') {
+                        const char = gameData.characters.find(c => c.id === log.characterId);
+                        dialogueToShow = { characterName: char?.name || 'Narrator', text: log.text };
+                        dialogueText = log.text;
+                    } else if (log.type === 'choice_selection') {
+                        const char = gameData.characters.find(c => c.id === log.characterId);
+                        const fullText = `${char?.name || 'A player'} chose: "${log.text}"`;
+                        dialogueToShow = { characterName: 'Narrator', text: fullText };
+                        dialogueText = fullText;
+                    }
+                    
+                    await drawSceneOnCanvas(ctx, canvas, { ...currentScene, dialogue: dialogueToShow }, loadedImages);
+                    
+                    const wordCount = dialogueText.split(/\s+/).filter(Boolean).length;
+                    const durationMs = (timingBaseSeconds + wordCount * timingSecondsPerWord) * 1000;
+                    await new Promise(res => setTimeout(res, Math.max(500, durationMs)));
+                }
+                
+                setExportProgress(10 + (i / gameData.storyLog.length) * 85);
+            }
+
+            if (sceneChangesSinceLastPause) {
+                await drawSceneOnCanvas(ctx, canvas, { ...currentScene, dialogue: null }, loadedImages);
+                await new Promise(res => setTimeout(res, 1000));
+            }
+            
+            const endScene = { ...currentScene, dialogue: { characterName: "The End", text: "Thank you for playing!" } };
+            await drawSceneOnCanvas(ctx, canvas, endScene, loadedImages);
+            await new Promise(res => setTimeout(res, 3000));
+
+            recorder.stop();
+        } catch(error) {
+            console.error("Video export failed:", error);
+            alert(`Video export failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+            setIsExporting(false);
+        }
+    };
+
+    if (!isOpen) return null;
+
+    return (
+        <div className="fixed inset-0 bg-primary bg-opacity-90 z-50 flex items-center justify-center p-4">
+            <div className="bg-secondary rounded-lg shadow-2xl w-full max-w-4xl h-[90vh] flex flex-col relative border-2 border-accent">
+                <button onClick={onClose} className="absolute top-2 right-2 text-light hover:text-highlight text-3xl font-bold">&times;</button>
+                <h2 className="text-2xl font-bold text-highlight p-4 border-b border-accent">Game Master Actions</h2>
+                
+                <div className="flex border-b border-accent">
+                    <button onClick={() => setActiveTab('game')} className={`px-4 py-2 ${activeTab === 'game' ? 'text-highlight border-b-2 border-highlight' : 'text-light'}`}>Game</button>
+                    <button onClick={() => setActiveTab('characters')} className={`px-4 py-2 ${activeTab === 'characters' ? 'text-highlight border-b-2 border-highlight' : 'text-light'}`}>Characters</button>
+                    <button onClick={() => setActiveTab('assets')} className={`px-4 py-2 ${activeTab === 'assets' ? 'text-highlight border-b-2 border-highlight' : 'text-light'}`}>Assets</button>
+                    <button onClick={() => setActiveTab('players')} className={`px-4 py-2 ${activeTab === 'players' ? 'text-highlight border-b-2 border-highlight' : 'text-light'}`}>Players</button>
+                    <button onClick={() => setActiveTab('export')} className={`px-4 py-2 ${activeTab === 'export' ? 'text-highlight border-b-2 border-highlight' : 'text-light'}`}>Export</button>
+                </div>
+
+                <div className="flex-1 overflow-y-auto p-4">
+                     {activeTab === 'game' && (
+                        <div className="space-y-6">
+                            {gameId && (
+                                <div>
+                                    <h3 className="text-xl font-semibold text-highlight mb-2">Game ID</h3>
+                                    <div className="bg-accent p-3 rounded-lg flex items-center gap-4">
+                                        <input
+                                            type="text"
+                                            readOnly
+                                            value={gameId}
+                                            className="w-full text-center p-2 text-2xl font-mono bg-primary rounded-md"
+                                            onFocus={(e) => e.target.select()}
+                                        />
+                                        <button
+                                            onClick={() => navigator.clipboard.writeText(gameId)}
+                                            className="px-4 py-2 bg-highlight text-white font-bold rounded-lg hover:bg-opacity-80"
+                                        >
+                                            Copy
+                                        </button>
+                                    </div>
+                                    <p className="text-xs text-gray-400 mt-1">Share this ID with players so they can join.</p>
+                                </div>
+                            )}
+                            <div>
+                                <h3 className="text-xl font-semibold text-highlight mb-2">Quests</h3>
+                                <div className="bg-accent p-4 rounded-lg space-y-3 mb-4">
+                                    <h4 className="font-bold">Add New Quest</h4>
+                                    <input type="text" placeholder="Quest Title" value={newQuestTitle} onChange={e => setNewQuestTitle(e.target.value)} className="w-full p-2 bg-primary rounded-md"/>
+                                    <textarea placeholder="Description" value={newQuestDesc} onChange={e => setNewQuestDesc(e.target.value)} className="w-full p-2 bg-primary rounded-md h-20"/>
+                                    <select value={newQuestAssignee} onChange={e => setNewQuestAssignee(e.target.value)} className="w-full p-2 bg-primary rounded-md">
+                                        <option value="null">Assign to... (Optional)</option>
+                                        {gameData.characters.filter(c => c.id !== 'narrator').map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                                    </select>
+                                    <div>
+                                        <label className="text-sm">Coin Reward:</label>
+                                        <input type="number" value={newQuestCoins} onChange={e => setNewQuestCoins(parseInt(e.target.value) || 0)} className="w-full p-2 bg-primary rounded-md"/>
+                                    </div>
+                                    <button onClick={handleAddQuest} className="w-full p-2 bg-highlight text-white font-bold rounded-lg hover:bg-opacity-80">Add Quest</button>
+                                </div>
+                                <div>
+                                    <h4 className="font-bold mb-2">Active Quests</h4>
+                                    {gameData.quests.filter(q => q.status === 'active').map(quest => (
+                                        <div key={quest.id} className="bg-accent p-2 rounded flex justify-between items-center mb-1">
+                                            <span>{quest.title}</span>
+                                            <button onClick={() => handleUpdateQuestStatus(quest.id, 'completed')} className="px-2 py-1 text-xs bg-green-600 hover:bg-green-700 rounded">Complete</button>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+
+                            <div>
+                                <h3 className="text-xl font-semibold text-highlight mb-2">Characters Stats</h3>
+                                {gameData.characters.filter(c => c.id !== 'narrator').map(char => (
+                                    <details key={char.id} className="bg-accent p-3 rounded-lg mb-2">
+                                        <summary className="font-bold cursor-pointer">{char.name}</summary>
+                                        <div className="grid grid-cols-2 gap-2 mt-2">
+                                            <div>
+                                                <label className="text-xs">Health</label>
+                                                <input type="number" value={char.health} onChange={e => updateCharacter({...char, health: Math.min(parseInt(e.target.value) || 0, char.maxHealth)})} className="w-full p-1 bg-primary rounded-md"/>
+                                            </div>
+                                             <div>
+                                                <label className="text-xs">Mana</label>
+                                                <input type="number" value={char.mana} onChange={e => updateCharacter({...char, mana: Math.min(parseInt(e.target.value) || 0, char.maxMana)})} className="w-full p-1 bg-primary rounded-md"/>
+                                            </div>
+                                        </div>
+                                    </details>
+                                ))}
+                            </div>
+                            
+                            <div>
+                                <h3 className="text-xl font-semibold text-highlight mb-2">Party Coins</h3>
+                                 <div className="flex items-center gap-2 bg-accent p-2 rounded-lg">
+                                    <input type="number" value={gameData.coins} onChange={e => dispatch({type: 'SET_COINS', payload: parseInt(e.target.value) || 0})} className="w-full p-2 bg-primary rounded-md"/>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+                    {activeTab === 'assets' && (
+                        <div className="space-y-6">
+                            <div>
+                                <h3 className="font-semibold mb-2 text-highlight">Upload Files</h3>
+                                <div className="flex flex-wrap gap-4">
+                                    <label className="px-4 py-2 bg-accent hover:bg-opacity-75 rounded-md cursor-pointer">Upload Background <input type="file" className="hidden" accept="image/*" onChange={e => handleFileChange(e, 'background')} /></label>
+                                    <label className="px-4 py-2 bg-accent hover:bg-opacity-75 rounded-md cursor-pointer">Upload Sprite <input type="file" className="hidden" accept="image/*,.webp" onChange={e => handleFileChange(e, 'characterSprite')} /></label>
+                                    <label className="px-4 py-2 bg-accent hover:bg-opacity-75 rounded-md cursor-pointer">Upload CG <input type="file" className="hidden" accept="image/*" onChange={e => handleFileChange(e, 'cg')} /></label>
+                                </div>
+                            </div>
+                            <div>
+                                <h3 className="font-semibold mb-2 text-highlight">Add from URL</h3>
+                                <div className="bg-accent p-3 rounded-lg">
+                                    <div className="grid grid-cols-1 md:grid-cols-3 gap-2 items-end">
+                                        <div className="md:col-span-2 grid grid-cols-2 gap-2">
+                                        <div>
+                                            <label htmlFor="asset-url-gm" className="text-xs text-gray-400 block mb-1">Image URL</label>
+                                            <input
+                                            id="asset-url-gm"
+                                            type="url"
+                                            value={assetUrl}
+                                            onChange={(e) => setAssetUrl(e.target.value)}
+                                            placeholder="https://..."
+                                            className="w-full p-2 text-sm bg-primary rounded-md"
+                                            />
+                                        </div>
+                                        <div>
+                                            <label htmlFor="asset-name-gm" className="text-xs text-gray-400 block mb-1">Asset Name</label>
+                                            <input
+                                            id="asset-name-gm"
+                                            type="text"
+                                            value={assetName}
+                                            onChange={(e) => setAssetName(e.target.value)}
+                                            placeholder="e.g., Cool Castle"
+                                            className="w-full p-2 text-sm bg-primary rounded-md"
+                                            />
+                                        </div>
+                                        </div>
+                                        <div className="grid grid-cols-2 gap-2">
+                                            <div>
+                                                <label htmlFor="asset-type-gm" className="text-xs text-gray-400 block mb-1">Asset Type</label>
+                                                <select
+                                                    id="asset-type-gm"
+                                                    value={assetType}
+                                                    onChange={(e) => setAssetType(e.target.value)}
+                                                    className="w-full p-2 text-sm bg-primary rounded-md h-[40px]"
+                                                >
+                                                    <option value="background">Background</option>
+                                                    <option value="characterSprite">Sprite</option>
+                                                    <option value="cg">CG</option>
+                                                </select>
+                                            </div>
+                                            <button
+                                            onClick={handleAddAssetFromUrl}
+                                            className="px-4 py-2 bg-highlight text-white font-bold rounded-lg hover:bg-opacity-80 disabled:bg-gray-500 h-[40px]"
+                                            >
+                                            Add
+                                            </button>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                            <div>
+                                <h3 className="font-semibold mb-2 text-highlight">Add from Asset Library</h3>
+                                <PremadeAssetBrowser 
+                                    onAddAsset={(asset) => dispatch({ type: 'ADD_ASSET', payload: {...asset, isPublished: true} })}
+                                    onAddAssetCollection={handleAddAssetCollection}
+                                />
+                            </div>
+                            <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-4">
+                                {gameData.assets.map(asset => (
+                                    <div key={asset.id} className="bg-accent p-2 rounded-lg relative">
+                                        <img src={asset.url} alt={asset.name} className="w-full h-32 object-cover rounded-md mb-2" />
+                                        <p className="text-sm truncate" title={asset.name}>{asset.name}</p>
+                                        <p className="text-xs text-gray-400 capitalize">{asset.type.replace('Sprite', ' Sprite')}</p>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+                    )}
+                    {activeTab === 'characters' && (
+                        <div className="space-y-4">
+                            {gameData.characters.filter(c => c.id !== 'narrator').map(char => (
+                                <CharacterEditor 
+                                    key={char.id}
+                                    char={char}
+                                    allSprites={gameData.assets.filter(a => a.type === 'characterSprite')}
+                                    updateCharacter={updateCharacter}
+                                    onDeleteCharacter={handleDeleteCharacter}
+                                />
+                            ))}
+                            <button onClick={addNewCharacter} className="px-4 py-2 bg-blue-600 hover:bg-blue-700 rounded-md">Add New Character</button>
+                        </div>
+                    )}
+                    {activeTab === 'players' && (
+                         <div>
+                            <h3 className="text-lg font-semibold text-highlight mb-2">Manage Players</h3>
+                            <div className="space-y-2">
+                            {players.map(player => (
+                                <div key={player.id} className="flex items-center space-x-2 bg-accent p-2 rounded">
+                                    <input type="text" value={player.name} onChange={e => handlePlayerNameChange(player.id, e.target.value)} className="p-2 bg-primary rounded-md flex-grow" placeholder="Player Name"/>
+                                    <button onClick={() => removePlayer(player.id)} className="text-red-500 hover:text-red-400 p-2 rounded-full font-bold">X</button>
+                                </div>
+                            ))}
+                            </div>
+                            <button onClick={addPlayer} disabled={players.length >= MAX_PLAYERS} className="mt-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 rounded-md disabled:bg-gray-500">Add Player</button>
+                        </div>
+                    )}
+                    {activeTab === 'export' && (
+                        <div>
+                            <h3 className="text-lg font-semibold text-highlight mb-2">Game Export</h3>
+                            <p className="mb-4 text-gray-400">This will render the entire game story into a video file and download it to your computer. This may take a few moments.</p>
+                            
+                            <div className="bg-accent p-4 rounded-lg mb-4 space-y-3">
+                                <h4 className="font-bold text-lg">Video Settings</h4>
+                                <div>
+                                    <label htmlFor="video-quality" className="block text-sm font-medium text-gray-300">Video Quality</label>
+                                    <select
+                                        id="video-quality"
+                                        value={videoQuality}
+                                        onChange={e => setVideoQuality(e.target.value)}
+                                        className="mt-1 w-full p-2 bg-primary rounded-md"
+                                    >
+                                        <option value="low">Low (Smaller file)</option>
+                                        <option value="medium">Medium</option>
+                                        <option value="high">High (Recommended)</option>
+                                        <option value="ultra">Ultra (Highest quality)</option>
+                                    </select>
+                                    <p className="text-xs text-gray-400 mt-1">Higher quality results in a larger file size.</p>
+                                </div>
+                            </div>
+                            
+                            <div className="bg-accent p-4 rounded-lg mb-4 space-y-3">
+                                <h4 className="font-bold text-lg">Timing Settings</h4>
+                                <p className="text-sm text-gray-400">Control the pacing of the exported video.</p>
+                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                                    <div>
+                                        <label htmlFor="base-seconds" className="block text-sm font-medium text-gray-300">Base Seconds per Dialogue</label>
+                                        <input
+                                            type="number"
+                                            id="base-seconds"
+                                            value={timingBaseSeconds}
+                                            onChange={e => setTimingBaseSeconds(parseFloat(e.target.value) || 0)}
+                                            className="mt-1 w-full p-2 bg-primary rounded-md"
+                                            step="0.1"
+                                            min="0"
+                                        />
+                                    </div>
+                                    <div>
+                                        <label htmlFor="seconds-per-word" className="block text-sm font-medium text-gray-300">Additional Seconds per Word</label>
+                                        <input
+                                            type="number"
+                                            id="seconds-per-word"
+                                            value={timingSecondsPerWord}
+                                            onChange={e => setTimingSecondsPerWord(parseFloat(e.target.value) || 0)}
+                                            className="mt-1 w-full p-2 bg-primary rounded-md"
+                                            step="0.05"
+                                            min="0"
+                                        />
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <button onClick={handleExportVideo} disabled={isExporting} className="px-6 py-3 bg-purple-600 hover:bg-purple-700 text-white font-bold rounded-md transition-colors disabled:bg-gray-600">
+                                {isExporting ? `Exporting... ${Math.round(exportProgress)}%` : 'Export Game as MP4'}
+                            </button>
+                             {isExporting && (
+                                <div className="mt-4">
+                                    <div className="w-full bg-accent rounded-full h-2.5">
+                                        <div className="bg-purple-600 h-2.5 rounded-full" style={{width: `${exportProgress}%`}}></div>
+                                    </div>
+                                </div>
+                            )}
+                        </div>
+                    )}
+                </div>
+                <canvas ref={canvasRef} style={{ display: 'none' }}></canvas>
+            </div>
+        </div>
+    );
+};
+
+// --- FROM App.tsx ---
+const App = () => {
+  const [gameData, dispatch] = React.useReducer(gameReducer, INITIAL_GAME_DATA);
+  const [players, setPlayers] = React.useState([{ id: `p-1`, name: 'Player 1', lastSeenLogIndex: 0 }]);
+  const [gamePhase, setGamePhase] = React.useState('setup');
+  const [currentPlayerIndex, setCurrentPlayerIndex] = React.useState(0);
+  const [isGmMenuOpen, setIsGmMenuOpen] = React.useState(false);
+  const [isLoading, setIsLoading] = React.useState(false);
+  const [isAuthenticating, setIsAuthenticating] = React.useState(true);
+  const [gameMode, setGameMode] = React.useState('local');
+  const [gameId, setGameId] = React.useState(null);
+  const [myPlayerId, setMyPlayerId] = React.useState(null);
+  const [connectionStatus, setConnectionStatus] = React.useState('disconnected');
+  const [sessionId] = React.useState(() => `session-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+  const connectionTimeoutRef = React.useRef(null);
+  const audioRef = React.useRef(null);
+  const [isGmRulesModalOpen, setIsGmRulesModalOpen] = React.useState(false);
+  const [isTutorialModalOpen, setIsTutorialModalOpen] = React.useState(false);
+  const [hasSeenRules, setHasSeenRules] = React.useState(false);
+
+  React.useEffect(() => {
+    signInAnonymouslyIfNeeded()
+      .then(() => setIsAuthenticating(false))
+      .catch(() => {
+        setIsAuthenticating(false);
+      });
+  }, []);
+  
+  React.useEffect(() => {
+    if (gameMode !== 'online-gm' || !gameId) return;
+
+    network.onMessage((message) => {
+      if (message.type === 'PLAYER_JOIN_REQUEST') {
+        if (players.length < MAX_PLAYERS && !players.find(p => p.id === message.payload.id)) {
+          const newPlayer = { id: message.payload.id, name: message.payload.name, lastSeenLogIndex: 0 };
+          setPlayers(p => [...p, newPlayer]);
+
+          if (gamePhase === 'play') {
+            dispatch({
+                type: 'ADD_LOG_ENTRY',
+                payload: {
+                    type: 'stat_change',
+                    text: `(${message.payload.name}) Has Joined the Game!`
+                }
+            });
+          }
+        }
+      } else if (message.type === 'LOBBY_CHAT_MESSAGE') {
+        dispatch({ type: 'ADD_LOBBY_CHAT_MESSAGE', payload: message.payload.message });
+      } else if (message.type === 'DISPATCH_ACTION') {
+        dispatch(message.payload.action);
+      } else if (message.type === 'END_TURN') {
+        handleEndTurn();
+      }
+    });
+    
+    network.onPresenceChange(gameId, (leavingPlayerId, leavingPlayerName) => {
+        const playerExists = players.some(p => p.id === leavingPlayerId);
+        if (!playerExists) return;
+
+        dispatch({
+            type: 'ADD_LOG_ENTRY',
+            payload: {
+                type: 'stat_change',
+                text: `(${leavingPlayerName}) Has Left the Game!`
+            }
+        });
+
+        const leavingPlayerIndex = players.findIndex(p => p.id === leavingPlayerId);
+        const newPlayers = players.filter(p => p.id !== leavingPlayerId);
+        setPlayers(newPlayers);
+
+        if (newPlayers.length > 0) {
+            if (leavingPlayerIndex < currentPlayerIndex) {
+                setCurrentPlayerIndex(prev => prev - 1);
+            } else {
+                setCurrentPlayerIndex(prev => prev % newPlayers.length);
+            }
+        } else {
+            setCurrentPlayerIndex(0);
+        }
+    });
+
+  }, [gameMode, gameId, players, currentPlayerIndex, gamePhase]);
+
+  React.useEffect(() => {
+    if (gameMode !== 'online-gm') return;
+    network.sendMessage({ 
+      type: 'GAME_STATE_SYNC', 
+      payload: { gameData, players, currentPlayerIndex, gamePhase } 
+    });
+  }, [gameMode, gameData, players, currentPlayerIndex, gamePhase]);
+
+  React.useEffect(() => {
+    if (gameMode !== 'online-player') return;
+
+    const handleMessage = (message) => {
+      if (message.type === 'GAME_STATE_SYNC') {
+        if (connectionTimeoutRef.current) {
+          clearTimeout(connectionTimeoutRef.current);
+          connectionTimeoutRef.current = null;
+        }
+
+        setConnectionStatus('connected');
+        
+        const { gameData, players, currentPlayerIndex, gamePhase } = message.payload;
+        dispatch({ type: 'SET_GAME_DATA', payload: gameData });
+        setPlayers(players || []);
+        setCurrentPlayerIndex(currentPlayerIndex || 0);
+        setGamePhase(gamePhase);
+      }
+    };
+    
+    network.onMessage(handleMessage);
+
+  }, [gameMode]);
+  
+  React.useEffect(() => {
+    if (gameMode === 'online-player' && gamePhase === 'play' && !hasSeenRules) {
+        setIsGmRulesModalOpen(true);
+        setHasSeenRules(true);
+    }
+  }, [gamePhase, gameMode, hasSeenRules]);
+
+  React.useEffect(() => {
+    const audio = audioRef.current;
+    if (!audio) return;
+
+    const isGmLobby = (gameMode === 'online-gm' && gamePhase === 'setup' && !!gameId);
+    const isPlayerWaiting = (gameMode === 'online-player' && gamePhase === 'setup');
+    const shouldPlay = gameData.lobbyMusicUrl && (isGmLobby || isPlayerWaiting);
+    
+    if (shouldPlay) {
+        if (audio.src !== gameData.lobbyMusicUrl) {
+            audio.src = gameData.lobbyMusicUrl;
+            audio.loop = true;
+        }
+        audio.play().catch(error => {
+            console.warn("Lobby music autoplay was blocked by the browser.", error);
+        });
+    } else {
+        audio.pause();
+        if (audio.src) {
+            audio.removeAttribute('src');
+            audio.load();
+        }
+    }
+  }, [gameData.lobbyMusicUrl, gameMode, gamePhase, gameId]);
+
+
+  const onlineDispatch = (action) => {
+    if (gameMode === 'online-player') {
+      network.sendMessage({ type: 'DISPATCH_ACTION', payload: { action } });
+    } else {
+      dispatch(action);
+    }
+  };
+
+    const handleSendLobbyChatMessage = (messageText) => {
+      const senderPlayer = players.find(p => p.id === myPlayerId);
+      const senderName = (gameMode === 'online-gm' && !myPlayerId) ? 'Game Master' : senderPlayer?.name;
+      const senderId = myPlayerId || 'gm-host';
+
+      if (!senderName) return;
+
+      const message = {
+          senderId: senderId,
+          senderName: senderName,
+          text: messageText,
+          timestamp: Date.now()
+      };
+      
+      if (gameMode === 'online-player') {
+          network.sendMessage({ type: 'LOBBY_CHAT_MESSAGE', payload: { message } });
+      } else if (gameMode === 'online-gm') {
+          dispatch({ type: 'ADD_LOBBY_CHAT_MESSAGE', payload: message });
+      }
+  };
+
+  const startLocalGame = async () => {
+    setGameMode('local');
+    await startGame();
+  };
+
+  const hostOnlineGame = (options) => {
+    const { asPlayer, playerName } = options;
+    const newGameId = String(Math.floor(100000 + Math.random() * 900000));
+    setGameId(newGameId);
+    setGameMode('online-gm');
+
+    if (asPlayer && playerName.trim()) {
+        const hostPlayerId = sessionId;
+        setMyPlayerId(hostPlayerId);
+        const hostPlayer = { id: hostPlayerId, name: playerName.trim(), lastSeenLogIndex: 0 };
+        setPlayers([hostPlayer]);
+        network.setupPresence(newGameId, hostPlayerId, playerName.trim());
+    } else {
+        setPlayers([]);
+        setMyPlayerId(null);
+    }
+
+    network.createGameChannel(newGameId);
+  };
+
+  const joinOnlineGameAsPlayer = (id, name) => {
+    setGameId(id);
+    setGameMode('online-player');
+    const playerId = sessionId;
+    setMyPlayerId(playerId);
+    network.joinGameChannel(id);
+    network.setupPresence(id, playerId, name);
+    
+    setConnectionStatus('connecting');
+    network.sendMessage({ type: 'PLAYER_JOIN_REQUEST', payload: { name, id: playerId } });
+
+    if (connectionTimeoutRef.current) {
+      clearTimeout(connectionTimeoutRef.current);
+    }
+
+    connectionTimeoutRef.current = window.setTimeout(() => {
+        setConnectionStatus('failed');
+        network.removePresence(id, playerId);
+    }, 20000);
+  };
+
+  const startGame = async () => {
+    if (players.length < 1 && gameMode !== 'online-gm') {
+      alert('You need at least one player to start.');
+      return;
+    }
+    if (players.some(p => !p.name.trim())) {
+      alert('All players must have a name before starting.');
+      return;
+    }
+    if (gameData.characters.length <= 1) {
+      return;
+    }
+
+    setIsLoading(true);
+    
+    const publishedAssets = gameData.assets.filter(a => a.isPublished);
+    const preloadPromises = publishedAssets.map(asset => {
+        return new Promise((resolve) => {
+            const img = new Image();
+            img.src = asset.url;
+            img.onload = () => resolve();
+            img.onerror = () => {
+                console.warn(`Failed to preload asset: ${asset.name} (${asset.url})`);
+                resolve();
+            };
+        });
+    });
+
+    try {
+        await Promise.all(preloadPromises);
+    } catch (error) {
+        console.error("Asset preloading failed:", error);
+    }
+
+    setIsLoading(false);
+    setGamePhase('play');
+    setCurrentPlayerIndex(0);
+  };
+  
+  const handleEndTurn = () => {
+    if (gameMode === 'online-player') {
+      network.sendMessage({ type: 'END_TURN', payload: {} });
+      return;
+    }
+    
+    const newPlayers = [...players];
+    if (newPlayers[currentPlayerIndex]) {
+        newPlayers[currentPlayerIndex].lastSeenLogIndex = gameData.storyLog.length;
+        setPlayers(newPlayers);
+    }
+    
+    setCurrentPlayerIndex(prev => (prev + 1) % (players.length || 1));
+  };
+  
+  const handleLeaveGame = () => {
+      if (gameMode === 'online-player') {
+          if (myPlayerId && gameId) {
+              network.removePresence(gameId, myPlayerId);
+          }
+          window.location.reload();
+      } else if (gameMode === 'online-gm' && myPlayerId && gameId) {
+          const playerToRemove = players.find(p => p.id === myPlayerId);
+          if (!playerToRemove) return;
+          if (!window.confirm(`Are you sure you want to stop playing as ${playerToRemove.name}? You will become a spectator.`)) return;
+
+          dispatch({ type: 'ADD_LOG_ENTRY', payload: { type: 'stat_change', text: `(${playerToRemove.name}) Has Left the Game!` } });
+          
+          const leavingPlayerIndex = players.findIndex(p => p.id === myPlayerId);
+          const newPlayers = players.filter(p => p.id !== myPlayerId);
+          setPlayers(newPlayers);
+
+          if (newPlayers.length > 0) {
+              if (leavingPlayerIndex < currentPlayerIndex) {
+                  setCurrentPlayerIndex(prev => prev - 1);
+              } else {
+                  setCurrentPlayerIndex(prev => prev % newPlayers.length);
+              }
+          } else {
+              setCurrentPlayerIndex(0);
+          }
+
+          network.removePresence(gameId, myPlayerId);
+          setMyPlayerId(null);
+
+      } else if (gameMode === 'local') {
+          const playerToRemove = players[currentPlayerIndex];
+          if (!playerToRemove) return;
+
+          if (!window.confirm(`Are you sure you want ${playerToRemove.name} to leave the game?`)) return;
+
+          dispatch({
+              type: 'ADD_LOG_ENTRY',
+              payload: {
+                  type: 'stat_change',
+                  text: `(${playerToRemove.name}) Has Left the Game!`
+              }
+          });
+          
+          const newPlayers = players.filter(p => p.id !== playerToRemove.id);
+          setPlayers(newPlayers);
+
+          setCurrentPlayerIndex(currentPlayerIndex % (newPlayers.length || 1));
+      }
+  };
+
+  const returnToSetup = () => {
+    window.location.reload();
+  }
+
+  const renderGamePhase = () => {
+    if (gameMode === 'online-player' && connectionStatus === 'connecting') {
+        return (
+            <div className="bg-secondary p-6 rounded-lg text-center">
+                <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-highlight mx-auto mb-4"></div>
+                <h2 className="text-2xl text-highlight mb-4">Connecting to game...</h2>
+                <p>Game ID: {gameId}</p>
+            </div>
+        )
+    }
+
+    if (gameMode === 'online-player' && connectionStatus === 'failed') {
+        return (
+            <div className="bg-secondary p-8 rounded-lg text-center max-w-lg mx-auto">
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-16 w-16 text-red-500 mx-auto mb-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+                <h2 className="text-3xl font-bold text-red-400 mb-4">Connection Failed</h2>
+                <p className="mb-4 text-lg">Could not connect to the game with ID: <span className="font-mono bg-primary px-2 py-1 rounded">{gameId}</span></p>
+                <p className="text-gray-300 mb-8">Please check the Game ID and your internet connection, and ensure the host is waiting for players in the lobby.</p>
+                <button onClick={() => window.location.reload()} className="px-6 py-3 bg-highlight text-white text-lg font-bold rounded-lg hover:bg-opacity-80 transition-transform hover:scale-105">
+                  Back to Menu
+                </button>
+            </div>
+        )
+    }
+
+    if (gameMode === 'online-player' && gamePhase === 'setup') {
+        return (
+            <div className="bg-secondary p-8 rounded-lg grid md:grid-cols-2 gap-8 items-center">
+                <div className="text-center">
+                    <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-highlight mx-auto mb-4"></div>
+                    <h2 className="text-2xl font-bold text-highlight mb-4">Waiting for Host to Start...</h2>
+                    <p className="mb-4">You have successfully joined the game. The host can see you in the lobby.</p>
+                    <div className="bg-primary p-4 rounded-lg">
+                        <p className="text-lg text-gray-400 mb-2">Game ID:</p>
+                        <p className="text-2xl font-mono text-white">{gameId}</p>
+                    </div>
+                </div>
+                <div className="h-[50vh]">
+                    <LobbyChat
+                        chatLog={gameData.lobbyChatLog}
+                        onSendMessage={handleSendLobbyChatMessage}
+                        canSendMessage={true}
+                        title="Lobby Chat"
+                    />
+                </div>
+            </div>
+        );
+    }
+
+    switch(gamePhase) {
+      case 'setup':
+        return (
+          <SetupView
+            gameData={gameData}
+            dispatch={dispatch}
+            players={players}
+            setPlayers={setPlayers}
+            onStartLocalGame={startLocalGame}
+            onHostOnlineGame={hostOnlineGame}
+            onJoinOnlineGame={joinOnlineGameAsPlayer}
+            gameId={gameId}
+            onStartGameForEveryone={startGame}
+            onSendLobbyMessage={handleSendLobbyChatMessage}
+          />
+        );
+      case 'play':
+        if (players.length === 0 && gameMode !== 'online-gm') {
+            return (
+                <div className="text-center p-8 bg-secondary rounded-lg">
+                    <h2 className="text-2xl text-highlight mb-4">All players have left the game.</h2>
+                    <button onClick={returnToSetup} className="px-4 py-2 bg-accent hover:bg-highlight text-white rounded-md transition-colors">
+                      Return to Setup
+                    </button>
+                </div>
+            )
+        }
+        return (
+          <GameView 
+            gameData={gameData}
+            dispatch={onlineDispatch}
+            players={players}
+            currentPlayer={players[currentPlayerIndex]}
+            currentPlayerIndex={currentPlayerIndex}
+            onEndTurn={handleEndTurn}
+            gameMode={gameMode}
+            myPlayerId={myPlayerId}
+          />
+        );
+    }
+  }
+
+  if (isAuthenticating) {
+    return (
+        <div className="fixed inset-0 bg-primary flex items-center justify-center z-50">
+            <div className="text-center">
+                <div className="animate-spin rounded-full h-16 w-16 border-t-2 border-b-2 border-highlight mx-auto mb-4"></div>
+                <h2 className="text-2xl font-bold">Connecting to Game Services...</h2>
+            </div>
+        </div>
+    );
+  }
+
+  const isPlayerInGame = (gameMode === 'local' && players.length > 0) || (gameMode === 'online-player') || (gameMode === 'online-gm' && !!myPlayerId);
+
+  return (
+      <div className="min-h-screen bg-primary text-light font-sans p-4 relative">
+          <audio ref={audioRef} />
+          {isLoading && (
+            <div className="fixed inset-0 bg-primary bg-opacity-90 flex items-center justify-center z-50">
+                <div className="text-center">
+                    <div className="animate-spin rounded-full h-16 w-16 border-t-2 border-b-2 border-highlight mx-auto mb-4"></div>
+                    <h2 className="text-2xl font-bold">Loading Assets...</h2>
+                </div>
+            </div>
+          )}
+          <div className="w-full max-w-7xl mx-auto">
+              <header className="w-full flex justify-between items-center p-4 bg-secondary rounded-lg shadow-lg mb-4 border border-accent">
+                <h1 className="text-3xl font-bold text-highlight">Visual Novel Forge</h1>
+                <div className="flex items-center gap-4">
+                  {gamePhase === 'play' && (
+                    <>
+                      <button onClick={() => setIsTutorialModalOpen(true)} className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-md transition-colors">
+                        Tutorial
+                      </button>
+                      <button onClick={() => setIsGmRulesModalOpen(true)} className="px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-md transition-colors">
+                        GM Rules
+                      </button>
+                    </>
+                  )}
+                  {isPlayerInGame && gamePhase === 'play' && (
+                     <button onClick={handleLeaveGame} className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-md transition-colors relative z-10">
+                      Leave Game
+                    </button>
+                  )}
+                  {(gameMode === 'local' || gameMode === 'online-gm') && gamePhase === 'play' && (
+                    <button onClick={() => setIsGmMenuOpen(true)} className="px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-md transition-colors">
+                      GM Actions
+                    </button>
+                  )}
+                </div>
+              </header>
+
+              <main>
+                {renderGamePhase()}
+              </main>
+
+              {(gameMode === 'local' || gameMode === 'online-gm') && gamePhase === 'play' && (
+                <GMMenu
+                    isOpen={isGmMenuOpen}
+                    onClose={() => setIsGmMenuOpen(false)}
+                    gameData={gameData}
+                    dispatch={dispatch}
+                    players={players}
+                    setPlayers={setPlayers}
+                    gameId={gameId}
+                />
+              )}
+          </div>
+          {isGmRulesModalOpen && <GmRulesModal rules={gameData.gmRules} onClose={() => setIsGmRulesModalOpen(false)} />}
+          {isTutorialModalOpen && <TutorialModal onClose={() => setIsTutorialModalOpen(false)} />}
+      </div>
+  );
+};
+
+// --- FROM index.tsx ---
+const rootElement = document.getElementById('root');
+if (!rootElement) {
+  throw new Error("Could not find root element to mount to");
+}
+
+const root = ReactDOM.createRoot(rootElement);
+root.render(
+  <React.StrictMode>
+    <App />
+  </React.StrictMode>
+);
+
+</script>
   </body>
 </html>
