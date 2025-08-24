@@ -1,5 +1,5 @@
 import React, { useState, useCallback, useRef, useEffect } from 'react';
-import { GameData, Player, AssetType, Asset, Character, StoryLogEntry, Quest, Item, ItemType } from '../types';
+import { GameData, Player, AssetType, Asset, Character, StoryLogEntry, Quest } from '../types';
 import { Action } from '../state/reducer';
 import { MAX_PLAYERS } from '../constants';
 import PremadeAssetBrowser from './PremadeAssetBrowser';
@@ -142,7 +142,6 @@ const GMMenu: React.FC<GMMenuProps> = ({ isOpen, onClose, gameData, dispatch, pl
     const [newQuestDesc, setNewQuestDesc] = useState('');
     const [newQuestAssignee, setNewQuestAssignee] = useState<string>('null');
     const [newQuestCoins, setNewQuestCoins] = useState(0);
-    const [newQuestItems, setNewQuestItems] = useState<Omit<Item, 'id'>[]>([]);
     
     // Player Management
     const handlePlayerNameChange = (id: string, name: string) => {
@@ -173,16 +172,6 @@ const GMMenu: React.FC<GMMenuProps> = ({ isOpen, onClose, gameData, dispatch, pl
     }
 
     // Asset Management
-    const deleteAsset = useCallback((assetId: string) => {
-        if (window.confirm('Are you sure you want to permanently delete this asset? This cannot be undone.')) {
-            dispatch({ type: 'DELETE_ASSET', payload: { id: assetId } });
-        }
-    }, [dispatch]);
-
-    const handleSetAssetPublished = useCallback((id: string, isPublished: boolean) => {
-        dispatch({ type: 'SET_ASSET_PUBLISHED', payload: { id, isPublished } });
-    }, [dispatch]);
-
     const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>, type: AssetType) => {
         const file = event.target.files?.[0];
         if (file) {
@@ -213,6 +202,10 @@ const GMMenu: React.FC<GMMenuProps> = ({ isOpen, onClose, gameData, dispatch, pl
         setAssetName('');
     };
 
+    const handleAddAssetCollection = (assets: Omit<Asset, 'id' | 'isPublished'>[]) => {
+        dispatch({ type: 'BATCH_ADD_ASSETS', payload: assets.map(a => ({ ...a, isPublished: true })) });
+    };
+
     // Character Management
     const addNewCharacter = () => {
         dispatch({ type: 'ADD_CHARACTER', payload: { name: 'New Character', bio: '', spriteAssetIds: [] } });
@@ -241,7 +234,6 @@ const GMMenu: React.FC<GMMenuProps> = ({ isOpen, onClose, gameData, dispatch, pl
             assignedCharacterId: newQuestAssignee === 'null' ? null : newQuestAssignee,
             rewards: {
                 coins: newQuestCoins,
-                items: newQuestItems,
             }
         };
         dispatch({ type: 'ADD_QUEST', payload: questPayload });
@@ -252,24 +244,10 @@ const GMMenu: React.FC<GMMenuProps> = ({ isOpen, onClose, gameData, dispatch, pl
         setNewQuestDesc('');
         setNewQuestAssignee('null');
         setNewQuestCoins(0);
-        setNewQuestItems([]);
     };
     
     const handleUpdateQuestStatus = (id: string, status: 'completed' | 'active') => {
         dispatch({type: 'UPDATE_QUEST', payload: {id, status}});
-    }
-
-    const handleAddItemToQuest = () => {
-        const name = prompt("Enter item name:");
-        if (!name) return;
-        const description = prompt("Enter item description:", "A mysterious item.");
-        const type = prompt("Enter item type ('key' or 'disposable'):", "key") as ItemType;
-        
-        if (name && (type === 'key' || type === 'disposable')) {
-            setNewQuestItems([...newQuestItems, { name, description: description || '', type }]);
-        } else {
-            alert("Invalid item type. Please enter 'key' or 'disposable'.");
-        }
     }
 
 
@@ -465,13 +443,6 @@ const GMMenu: React.FC<GMMenuProps> = ({ isOpen, onClose, gameData, dispatch, pl
                                         <label className="text-sm">Coin Reward:</label>
                                         <input type="number" value={newQuestCoins} onChange={e => setNewQuestCoins(parseInt(e.target.value) || 0)} className="w-full p-2 bg-primary rounded-md"/>
                                     </div>
-                                    <div>
-                                        <label className="text-sm">Item Rewards:</label>
-                                        <div className="space-y-1 mt-1">
-                                            {newQuestItems.map((item, index) => <div key={index} className="text-xs bg-primary p-1 rounded">{item.name} ({item.type})</div>)}
-                                        </div>
-                                        <button onClick={handleAddItemToQuest} className="text-xs px-2 py-1 mt-1 bg-primary hover:bg-opacity-75 rounded">+ Add Item Reward</button>
-                                    </div>
                                     <button onClick={handleAddQuest} className="w-full p-2 bg-highlight text-white font-bold rounded-lg hover:bg-opacity-80">Add Quest</button>
                                 </div>
                                 <div>
@@ -487,7 +458,7 @@ const GMMenu: React.FC<GMMenuProps> = ({ isOpen, onClose, gameData, dispatch, pl
 
                             {/* Character Stats & Inventory */}
                             <div>
-                                <h3 className="text-xl font-semibold text-highlight mb-2">Characters Stats & Inventory</h3>
+                                <h3 className="text-xl font-semibold text-highlight mb-2">Characters Stats</h3>
                                 {gameData.characters.filter(c => c.id !== 'narrator').map(char => (
                                     <details key={char.id} className="bg-accent p-3 rounded-lg mb-2">
                                         <summary className="font-bold cursor-pointer">{char.name}</summary>
@@ -500,19 +471,6 @@ const GMMenu: React.FC<GMMenuProps> = ({ isOpen, onClose, gameData, dispatch, pl
                                                 <label className="text-xs">Mana</label>
                                                 <input type="number" value={char.mana} onChange={e => updateCharacter({...char, mana: Math.min(parseInt(e.target.value) || 0, char.maxMana)})} className="w-full p-1 bg-primary rounded-md"/>
                                             </div>
-                                        </div>
-                                        <div className="mt-2">
-                                            <h5 className="text-sm font-semibold">Inventory</h5>
-                                            {(char.inventory || []).map(item => (
-                                                <div key={item.id} className="text-xs flex justify-between items-center bg-primary p-1 rounded mt-1">
-                                                    <span>{item.name}</span>
-                                                    <button onClick={() => dispatch({type: 'REMOVE_ITEM_FROM_CHARACTER', payload: {characterId: char.id, itemId: item.id}})} className="text-red-500 font-bold px-1">&times;</button>
-                                                </div>
-                                            ))}
-                                            <button onClick={() => {
-                                                const name = prompt("Item name:");
-                                                if (name) dispatch({type: 'ADD_ITEM_TO_CHARACTER', payload: {characterId: char.id, item: {name, description: 'Added by GM', type: 'disposable'}}});
-                                            }} className="text-xs px-2 py-1 mt-1 bg-primary hover:bg-opacity-75 rounded">+ Add Item</button>
                                         </div>
                                     </details>
                                 ))}
@@ -591,21 +549,14 @@ const GMMenu: React.FC<GMMenuProps> = ({ isOpen, onClose, gameData, dispatch, pl
                             </div>
                             <div>
                                 <h3 className="font-semibold mb-2 text-highlight">Add from Asset Library</h3>
-                                <PremadeAssetBrowser onAddAsset={(asset) => dispatch({ type: 'ADD_ASSET', payload: {...asset, isPublished: true} })} />
+                                <PremadeAssetBrowser 
+                                    onAddAsset={(asset) => dispatch({ type: 'ADD_ASSET', payload: {...asset, isPublished: true} })}
+                                    onAddAssetCollection={handleAddAssetCollection}
+                                />
                             </div>
                             <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-4">
                                 {gameData.assets.map(asset => (
                                     <div key={asset.id} className="bg-accent p-2 rounded-lg relative">
-                                        <div className="absolute top-1 right-1 flex gap-1 z-10">
-                                            <button 
-                                                onClick={() => handleSetAssetPublished(asset.id, !asset.isPublished)} 
-                                                className={`bg-black bg-opacity-50 rounded-full w-6 h-6 flex items-center justify-center font-bold ${asset.isPublished ? 'text-yellow-400' : 'text-gray-500'}`}
-                                                title={asset.isPublished ? 'Unpublish' : 'Publish'}
-                                            >
-                                                ⭐
-                                            </button>
-                                            <button onClick={() => deleteAsset(asset.id)} className="bg-black bg-opacity-50 text-red-500 rounded-full w-6 h-6 flex items-center justify-center font-bold z-10">&times;</button>
-                                        </div>
                                         <img src={asset.url} alt={asset.name} className="w-full h-32 object-cover rounded-md mb-2" />
                                         <p className="text-sm truncate" title={asset.name}>{asset.name}</p>
                                         <p className="text-xs text-gray-400 capitalize">{asset.type.replace('Sprite', ' Sprite')}</p>

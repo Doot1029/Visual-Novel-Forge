@@ -1,31 +1,31 @@
-import { GameData, StoryLogEntry, Asset, Character, Quest, Item } from '../types';
+import { GameData, StoryLogEntry, Asset, Character, Quest, ChatMessage } from '../types';
 import { INITIAL_GAME_DATA } from '../constants';
 
 export type Action =
-  | { type: 'UPDATE_STORY_PROMPT'; payload: string }
+  | { type: 'UPDATE_GM_RULES'; payload: string }
   | { type: 'ADD_ASSET'; payload: Omit<Asset, 'id'> }
   | { type: 'DELETE_ASSET', payload: { id: string } }
   | { type: 'SET_ASSET_PUBLISHED', payload: { id: string, isPublished: boolean } }
-  | { type: 'ADD_CHARACTER'; payload: Omit<Character, 'id' | 'health' | 'maxHealth' | 'mana' | 'maxMana' | 'inventory'> }
+  | { type: 'ADD_CHARACTER'; payload: Omit<Character, 'id' | 'health' | 'maxHealth' | 'mana' | 'maxMana'> }
   | { type: 'UPDATE_CHARACTER'; payload: Character }
   | { type: 'DELETE_CHARACTER'; payload: { id: string } }
   | { type: 'ADD_LOG_ENTRY'; payload: StoryLogEntry }
   | { type: 'RESET_STORY_LOG' }
   | { type: 'BATCH_ADD_DATA'; payload: { characters: Character[], assets: Asset[] } }
+  | { type: 'BATCH_ADD_ASSETS'; payload: Omit<Asset, 'id'>[] }
   | { type: 'ADD_QUEST'; payload: Omit<Quest, 'id' | 'status'> }
   | { type: 'UPDATE_QUEST'; payload: Pick<Quest, 'id' | 'status'> }
   | { type: 'SET_COINS'; payload: number }
-  | { type: 'ADD_ITEM_TO_CHARACTER'; payload: { characterId: string; item: Omit<Item, 'id'> } }
-  | { type: 'REMOVE_ITEM_FROM_CHARACTER'; payload: { characterId: string; itemId: string } }
+  | { type: 'ADD_CHAT_MESSAGE'; payload: ChatMessage }
   | { type: 'SET_GAME_DATA'; payload: GameData };
 
 
 export const gameReducer = (state: GameData, action: Action): GameData => {
   switch (action.type) {
-    case 'UPDATE_STORY_PROMPT':
+    case 'UPDATE_GM_RULES':
       return {
         ...state,
-        storyPrompt: action.payload,
+        gmRules: action.payload,
       };
     case 'ADD_ASSET':
       return {
@@ -61,7 +61,6 @@ export const gameReducer = (state: GameData, action: Action): GameData => {
                 maxHealth: 100,
                 mana: 50,
                 maxMana: 50,
-                inventory: [],
                 ...action.payload 
             }],
         };
@@ -91,6 +90,16 @@ export const gameReducer = (state: GameData, action: Action): GameData => {
             characters: [...state.characters, ...action.payload.characters],
             assets: [...state.assets, ...action.payload.assets],
         };
+    case 'BATCH_ADD_ASSETS': {
+        const newAssets = action.payload.map((asset, index) => ({
+            id: `asset-${Date.now()}-${index}`,
+            ...asset,
+        }));
+        return {
+            ...state,
+            assets: [...state.assets, ...newAssets],
+        };
+    }
     case 'ADD_QUEST':
       return {
         ...state,
@@ -103,30 +112,17 @@ export const gameReducer = (state: GameData, action: Action): GameData => {
         }
 
         const updatedQuests = state.quests.map(q => q.id === action.payload.id ? { ...q, status: action.payload.status } : q);
-        let updatedCharacters = state.characters;
+        const updatedCharacters = state.characters;
         let updatedCoins = state.coins;
         const logEntries: StoryLogEntry[] = [];
 
         // If quest is completed, distribute rewards
         if (action.payload.status === 'completed') {
-            const { rewards, assignedCharacterId, title } = questToUpdate;
+            const { rewards, title } = questToUpdate;
             updatedCoins += rewards.coins;
             logEntries.push({type: 'quest_status', text: `Quest Completed: ${title}`});
             if (rewards.coins > 0) {
                  logEntries.push({type: 'stat_change', text: `Party received ${rewards.coins} coins.`});
-            }
-            
-            if (assignedCharacterId) {
-                updatedCharacters = state.characters.map(c => {
-                    if (c.id === assignedCharacterId) {
-                        const newItems = (rewards.items || []).map(item => ({ ...item, id: `item-${Date.now()}-${Math.random()}` }));
-                        if (newItems.length > 0) {
-                            logEntries.push({type: 'stat_change', text: `${c.name} received ${newItems.map(i => `[${i.name}]`).join(', ')}.`});
-                        }
-                        return { ...c, inventory: [...(c.inventory || []), ...newItems] };
-                    }
-                    return c;
-                });
             }
         }
         
@@ -143,25 +139,10 @@ export const gameReducer = (state: GameData, action: Action): GameData => {
             ...state,
             coins: action.payload >= 0 ? action.payload : 0,
         };
-    case 'ADD_ITEM_TO_CHARACTER': {
-        const newItem: Item = { id: `item-${Date.now()}`, ...action.payload.item };
+    case 'ADD_CHAT_MESSAGE':
         return {
             ...state,
-            characters: state.characters.map(c => 
-                c.id === action.payload.characterId 
-                ? { ...c, inventory: [...(c.inventory || []), newItem] } 
-                : c
-            )
-        };
-    }
-    case 'REMOVE_ITEM_FROM_CHARACTER':
-        return {
-            ...state,
-            characters: state.characters.map(c => 
-                c.id === action.payload.characterId 
-                ? { ...c, inventory: (c.inventory || []).filter(item => item.id !== action.payload.itemId) } 
-                : c
-            )
+            chatLog: [...(state.chatLog || []), action.payload],
         };
     case 'SET_GAME_DATA': {
         const payload = action.payload;
@@ -174,6 +155,7 @@ export const gameReducer = (state: GameData, action: Action): GameData => {
             characters: payload.characters || [],
             storyLog: payload.storyLog || [],
             quests: payload.quests || [],
+            chatLog: payload.chatLog || [],
         };
     }
     default:

@@ -18,15 +18,6 @@ export interface Asset {
   isPublished?: boolean;
 }
 
-export type ItemType = 'key' | 'disposable';
-
-export interface Item {
-  id: string;
-  name:string;
-  description: string;
-  type: ItemType;
-}
-
 export type QuestStatus = 'active' | 'completed';
 
 export interface Quest {
@@ -37,7 +28,6 @@ export interface Quest {
   status: QuestStatus;
   rewards: {
     coins: number;
-    items: Omit<Item, 'id'>[];
   }
 }
 
@@ -50,7 +40,6 @@ export interface Character {
   maxHealth: number;
   mana: number;
   maxMana: number;
-  inventory: Item[];
 }
 
 export interface DialogueLogEntry {
@@ -115,14 +104,21 @@ export type StoryLogEntry =
   | QuestStatusLogEntry
   | StatChangeLogEntry;
 
+export interface ChatMessage {
+    senderId: PlayerId;
+    senderName: string;
+    text: string;
+    timestamp: number;
+}
 
 export interface GameData {
-  storyPrompt: string;
+  gmRules: string;
   assets: Asset[];
   characters: Character[];
   storyLog: StoryLogEntry[];
   quests: Quest[];
   coins: number;
+  chatLog: ChatMessage[];
 }
 
 export type GameMode = 'local' | 'online-gm' | 'online-player';

@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { GameData, Player, Character, DialogueLogEntry, ChoiceLogEntry, StoryLogEntry, Asset, AssetType, Quest, Item, GameMode } from '../types';
+import { GameData, Player, Character, DialogueLogEntry, ChoiceLogEntry, StoryLogEntry, Asset, AssetType, Quest, GameMode, ChatMessage } from '../types';
 import { Action } from '../state/reducer';
 import { NARRATOR_CHARACTER } from '../constants';
+import ChatView from './ChatView';
 
 // --- Types for Scene State ---
 interface SceneState {
@@ -113,8 +114,6 @@ const HistoryLogContent: React.FC<{ gameData: GameData }> = ({ gameData }) => {
 };
 
 const StatusContent: React.FC<{gameData: GameData}> = ({ gameData }) => {
-    const [selectedCharId, setSelectedCharId] = useState<string | null>(null);
-
     return (
         <div className="flex-1 overflow-y-auto pr-2">
             <div className="mb-4">
@@ -128,9 +127,6 @@ const StatusContent: React.FC<{gameData: GameData}> = ({ gameData }) => {
                     <div key={char.id} className="bg-accent p-2 rounded-lg">
                         <div className="flex justify-between items-center mb-1">
                              <p className="font-semibold">{char.name}</p>
-                             <button onClick={() => setSelectedCharId(char.id === selectedCharId ? null : char.id)} className="text-xs px-2 py-1 bg-primary rounded">
-                                {selectedCharId === char.id ? 'Hide Inv.' : 'Show Inv.'}
-                             </button>
                         </div>
                        
                         <div title="Health">
@@ -147,20 +143,6 @@ const StatusContent: React.FC<{gameData: GameData}> = ({ gameData }) => {
                             </div>
                             <span className="text-xs">{char.mana} / {char.maxMana}</span>
                         </div>
-                        {selectedCharId === char.id && (
-                             <div className="mt-2 pt-2 border-t border-primary">
-                                <h4 className="text-sm font-semibold mb-1">Inventory</h4>
-                                {(!char.inventory || char.inventory.length === 0) ? (
-                                    <p className="text-xs text-gray-400 italic">Empty</p>
-                                ) : (
-                                    <ul className="space-y-1">
-                                        {char.inventory.map(item => (
-                                            <li key={item.id} className="text-xs bg-primary p-1 rounded" title={`${item.type} - ${item.description}`}>{item.name}</li>
-                                        ))}
-                                    </ul>
-                                )}
-                            </div>
-                        )}
                     </div>
                 ))}
                 </div>
@@ -417,7 +399,9 @@ const GameView: React.FC<{
     const [stagedScene, setStagedScene] = useState<Partial<SceneState>>({});
     const [activeSideTab, setActiveSideTab] = useState<'history' | 'status'>('history');
     
-    const isMyTurn = (gameMode === 'local' && players.length > 0) || (gameMode === 'online-player' && currentPlayer?.id === myPlayerId);
+    const isOnlineGame = gameMode === 'online-player' || gameMode === 'online-gm';
+    const isMyTurn = (gameMode === 'local' && players.length > 0) || (isOnlineGame && !!myPlayerId && currentPlayer?.id === myPlayerId);
+    const isSpectatingGm = gameMode === 'online-gm' && !myPlayerId;
     
     const [playbackState, setPlaybackState] = useState<'idle' | 'playing'>('idle');
     const [playbackLogIndex, setPlaybackLogIndex] = useState(0); 
@@ -525,6 +509,34 @@ const GameView: React.FC<{
         setPlaybackLogIndex(nextIndex + 1);
     };
 
+    const canSendMessage = !isSpectatingGm && (players.length > 0 || gameMode === 'online-player');
+
+    const getSender = useCallback(() => {
+        if (gameMode === 'local') {
+            return { id: currentPlayer?.id, name: currentPlayer?.name };
+        }
+        if (myPlayerId) {
+            const me = players.find(p => p.id === myPlayerId);
+            return { id: me?.id, name: me?.name };
+        }
+        return { id: null, name: null };
+    }, [gameMode, currentPlayer, myPlayerId, players]);
+
+    const handleSendChatMessage = useCallback((messageText: string) => {
+        const sender = getSender();
+        if (!canSendMessage || !sender.id || !sender.name) return;
+        
+        const newMessage: ChatMessage = {
+            senderId: sender.id,
+            senderName: sender.name,
+            text: messageText,
+            timestamp: Date.now()
+        };
+
+        dispatch({ type: 'ADD_CHAT_MESSAGE', payload: newMessage });
+    }, [dispatch, canSendMessage, getSender]);
+
+
     return (
         <div>
             <div className="flex flex-col md:flex-row gap-4">
@@ -546,7 +558,7 @@ const GameView: React.FC<{
                     {activeSideTab === 'status' && <StatusContent gameData={gameData} />}
                 </div>
             </div>
-            {gameMode !== 'online-gm' && (
+            {!isSpectatingGm ? (
               <InputController 
                   dispatch={dispatch}
                   gameData={gameData}
@@ -557,12 +569,16 @@ const GameView: React.FC<{
                   onSceneChange={handleSceneChange}
                   isPlayingBack={playbackState === 'playing'}
               />
-            )}
-            {gameMode === 'online-gm' && (
+            ) : (
                 <div className="bg-secondary p-4 rounded-lg mt-4 text-center text-gray-400">
                     You are spectating as the Game Master.
                 </div>
             )}
+            <ChatView
+                chatLog={gameData.chatLog}
+                onSendMessage={handleSendChatMessage}
+                canSendMessage={canSendMessage}
+            />
         </div>
     );
 };

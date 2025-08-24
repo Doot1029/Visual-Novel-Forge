@@ -9,16 +9,16 @@ export const NARRATOR_CHARACTER: Character = {
   maxHealth: 999,
   mana: 999,
   maxMana: 999,
-  inventory: [],
 };
 
 export const INITIAL_GAME_DATA: GameData = {
-  storyPrompt: 'A group of adventurers finds a mysterious, glowing artifact in an ancient ruin...',
+  gmRules: '1. Be respectful to other players.\n2. No NSFW content.\n3. The Game Master\'s decisions are final.\n4. Have fun!',
   assets: [],
   characters: [NARRATOR_CHARACTER],
   storyLog: [],
   quests: [],
   coins: 0,
+  chatLog: [],
 };
 
 export const MAX_PLAYERS = 5;

@@ -5,6 +5,8 @@ import { INITIAL_GAME_DATA } from './constants';
 import SetupView from './components/SetupView';
 import GameView from './components/GameView';
 import GMMenu from './components/GMMenu';
+import GmRulesModal from './components/GmRulesModal';
+import TutorialModal from './components/TutorialModal';
 import * as network from './services/networkService';
 import { MAX_PLAYERS } from './constants';
 import { signInAnonymouslyIfNeeded } from './services/firebase';
@@ -25,6 +27,11 @@ const App: React.FC = () => {
   const [connectionStatus, setConnectionStatus] = useState<'disconnected' | 'connecting' | 'connected'>('disconnected');
   const [sessionId] = useState(() => `session-${Date.now()}-${Math.random().toString(36).slice(2)}`);
   const connectionTimeoutRef = useRef<number | null>(null);
+
+  // Modals and one-time popups state
+  const [isGmRulesModalOpen, setIsGmRulesModalOpen] = useState(false);
+  const [isTutorialModalOpen, setIsTutorialModalOpen] = useState(false);
+  const [hasSeenRules, setHasSeenRules] = useState(false);
 
   // --- Firebase Auth ---
   useEffect(() => {
@@ -129,6 +136,15 @@ const App: React.FC = () => {
     network.onMessage(handleMessage);
 
   }, [gameMode]);
+  
+  // Player: Show rules modal on first entry to 'play' phase
+  useEffect(() => {
+    if (gameMode === 'online-player' && gamePhase === 'play' && !hasSeenRules) {
+        setIsGmRulesModalOpen(true);
+        setHasSeenRules(true);
+    }
+  }, [gamePhase, gameMode, hasSeenRules]);
+
 
   // --- Game Actions ---
 
@@ -145,13 +161,24 @@ const App: React.FC = () => {
     await startGame();
   };
 
-  const hostOnlineGame = () => {
+  const hostOnlineGame = (options: { asPlayer: boolean, playerName: string }) => {
+    const { asPlayer, playerName } = options;
     const newGameId = String(Math.floor(100000 + Math.random() * 900000));
     setGameId(newGameId);
     setGameMode('online-gm');
-    setPlayers([]); // Start with no players for GM
+
+    if (asPlayer && playerName.trim()) {
+        const hostPlayerId = sessionId; // Use the unique session ID
+        setMyPlayerId(hostPlayerId);
+        const hostPlayer: Player = { id: hostPlayerId, name: playerName.trim(), lastSeenLogIndex: 0 };
+        setPlayers([hostPlayer]);
+        network.setupPresence(newGameId, hostPlayerId, playerName.trim());
+    } else {
+        setPlayers([]); // Start with no players for GM
+        setMyPlayerId(null); // GM is not a player
+    }
+
     network.createGameChannel(newGameId);
-    setMyPlayerId(null); // GM is not a player
   };
 
   const joinOnlineGameAsPlayer = (id: string, name: string) => {
@@ -237,6 +264,30 @@ const App: React.FC = () => {
               network.removePresence(gameId, myPlayerId);
           }
           window.location.reload();
+      } else if (gameMode === 'online-gm' && myPlayerId && gameId) {
+          const playerToRemove = players.find(p => p.id === myPlayerId);
+          if (!playerToRemove) return;
+          if (!window.confirm(`Are you sure you want to stop playing as ${playerToRemove.name}? You will become a spectator.`)) return;
+
+          dispatch({ type: 'ADD_LOG_ENTRY', payload: { type: 'stat_change', text: `(${playerToRemove.name}) Has Left the Game!` } });
+          
+          const leavingPlayerIndex = players.findIndex(p => p.id === myPlayerId);
+          const newPlayers = players.filter(p => p.id !== myPlayerId);
+          setPlayers(newPlayers);
+
+          if (newPlayers.length > 0) {
+              if (leavingPlayerIndex < currentPlayerIndex) {
+                  setCurrentPlayerIndex(prev => prev - 1);
+              } else {
+                  setCurrentPlayerIndex(prev => prev % newPlayers.length);
+              }
+          } else {
+              setCurrentPlayerIndex(0);
+          }
+
+          network.removePresence(gameId, myPlayerId);
+          setMyPlayerId(null);
+
       } else if (gameMode === 'local') {
           const playerToRemove = players[currentPlayerIndex];
           if (!playerToRemove) return;
@@ -341,7 +392,8 @@ const App: React.FC = () => {
     );
   }
 
-  const isPlayerInGame = (gameMode === 'local' && players.length > 0) || gameMode === 'online-player';
+  const isPlayerInGame = (gameMode === 'local' && players.length > 0) || (gameMode === 'online-player') || (gameMode === 'online-gm' && !!myPlayerId);
+
 
   return (
       <div className="min-h-screen bg-primary text-light font-sans p-4 relative">
@@ -357,8 +409,18 @@ const App: React.FC = () => {
               <header className="w-full flex justify-between items-center p-4 bg-secondary rounded-lg shadow-lg mb-4 border border-accent">
                 <h1 className="text-3xl font-bold text-highlight">Visual Novel Forge</h1>
                 <div className="flex items-center gap-4">
+                  {gamePhase === 'play' && (
+                    <>
+                      <button onClick={() => setIsTutorialModalOpen(true)} className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-md transition-colors">
+                        Tutorial
+                      </button>
+                      <button onClick={() => setIsGmRulesModalOpen(true)} className="px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-md transition-colors">
+                        GM Rules
+                      </button>
+                    </>
+                  )}
                   {isPlayerInGame && gamePhase === 'play' && (
-                     <button onClick={handleLeaveGame} className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-md transition-colors">
+                     <button onClick={handleLeaveGame} className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-md transition-colors relative z-10">
                       Leave Game
                     </button>
                   )}
@@ -367,7 +429,6 @@ const App: React.FC = () => {
                       GM Actions
                     </button>
                   )}
-                  {gamePhase === 'setup' && <div />}
                 </div>
               </header>
 
@@ -387,6 +448,8 @@ const App: React.FC = () => {
                 />
               )}
           </div>
+          {isGmRulesModalOpen && <GmRulesModal rules={gameData.gmRules} onClose={() => setIsGmRulesModalOpen(false)} />}
+          {isTutorialModalOpen && <TutorialModal onClose={() => setIsTutorialModalOpen(false)} />}
       </div>
   );
 };
