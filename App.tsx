@@ -1,5 +1,5 @@
 import React, { useState, useReducer, useCallback, useEffect, useRef } from 'react';
-import { GameData, Player, GamePhase, Character, Asset, GameMode } from './types';
+import { GameData, Player, GamePhase, Character, Asset, GameMode, ChatMessage } from './types';
 import { gameReducer, Action } from './state/reducer';
 import { INITIAL_GAME_DATA } from './constants';
 import SetupView from './components/SetupView';
@@ -7,6 +7,7 @@ import GameView from './components/GameView';
 import GMMenu from './components/GMMenu';
 import GmRulesModal from './components/GmRulesModal';
 import TutorialModal from './components/TutorialModal';
+import LobbyChat from './components/LobbyChat';
 import * as network from './services/networkService';
 import { MAX_PLAYERS } from './constants';
 import { signInAnonymouslyIfNeeded } from './services/firebase';
@@ -24,9 +25,10 @@ const App: React.FC = () => {
   const [gameMode, setGameMode] = useState<GameMode>('local');
   const [gameId, setGameId] = useState<string | null>(null);
   const [myPlayerId, setMyPlayerId] = useState<string | null>(null);
-  const [connectionStatus, setConnectionStatus] = useState<'disconnected' | 'connecting' | 'connected'>('disconnected');
+  const [connectionStatus, setConnectionStatus] = useState<'disconnected' | 'connecting' | 'connected' | 'failed'>('disconnected');
   const [sessionId] = useState(() => `session-${Date.now()}-${Math.random().toString(36).slice(2)}`);
   const connectionTimeoutRef = useRef<number | null>(null);
+  const audioRef = useRef<HTMLAudioElement>(null);
 
   // Modals and one-time popups state
   const [isGmRulesModalOpen, setIsGmRulesModalOpen] = useState(false);
@@ -65,6 +67,8 @@ const App: React.FC = () => {
             });
           }
         }
+      } else if (message.type === 'LOBBY_CHAT_MESSAGE') {
+        dispatch({ type: 'ADD_LOBBY_CHAT_MESSAGE', payload: message.payload.message });
       } else if (message.type === 'DISPATCH_ACTION') {
         dispatch(message.payload.action);
       } else if (message.type === 'END_TURN') {
@@ -145,6 +149,32 @@ const App: React.FC = () => {
     }
   }, [gamePhase, gameMode, hasSeenRules]);
 
+  // Lobby Music Playback
+  useEffect(() => {
+    const audio = audioRef.current;
+    if (!audio) return;
+
+    const isGmLobby = (gameMode === 'online-gm' && gamePhase === 'setup' && !!gameId);
+    const isPlayerWaiting = (gameMode === 'online-player' && gamePhase === 'setup');
+    const shouldPlay = gameData.lobbyMusicUrl && (isGmLobby || isPlayerWaiting);
+    
+    if (shouldPlay) {
+        if (audio.src !== gameData.lobbyMusicUrl) {
+            audio.src = gameData.lobbyMusicUrl;
+            audio.loop = true;
+        }
+        audio.play().catch(error => {
+            console.warn("Lobby music autoplay was blocked by the browser.", error);
+        });
+    } else {
+        audio.pause();
+        if (audio.src) {
+            audio.removeAttribute('src');
+            audio.load();
+        }
+    }
+  }, [gameData.lobbyMusicUrl, gameMode, gamePhase, gameId]);
+
 
   // --- Game Actions ---
 
@@ -154,6 +184,27 @@ const App: React.FC = () => {
     } else {
       dispatch(action);
     }
+  };
+
+    const handleSendLobbyChatMessage = (messageText: string) => {
+      const senderPlayer = players.find(p => p.id === myPlayerId);
+      const senderName = (gameMode === 'online-gm' && !myPlayerId) ? 'Game Master' : senderPlayer?.name;
+      const senderId = myPlayerId || 'gm-host';
+
+      if (!senderName) return;
+
+      const message: ChatMessage = {
+          senderId: senderId,
+          senderName: senderName,
+          text: messageText,
+          timestamp: Date.now()
+      };
+      
+      if (gameMode === 'online-player') {
+          network.sendMessage({ type: 'LOBBY_CHAT_MESSAGE', payload: { message } });
+      } else if (gameMode === 'online-gm') {
+          dispatch({ type: 'ADD_LOBBY_CHAT_MESSAGE', payload: message });
+      }
   };
 
   const startLocalGame = async () => {
@@ -197,9 +248,9 @@ const App: React.FC = () => {
     }
 
     connectionTimeoutRef.current = window.setTimeout(() => {
-      alert("Failed to connect to the game. Please check the Game ID and ensure the host is waiting for players.");
-      window.location.reload();
-    }, 10000);
+        setConnectionStatus('failed');
+        network.removePresence(id, playerId);
+    }, 20000); // Increased to 20 seconds
   };
 
   const startGame = async () => {
@@ -212,7 +263,6 @@ const App: React.FC = () => {
       return;
     }
     if (gameData.characters.length <= 1) {
-      alert('You must create at least one character besides the Narrator.');
       return;
     }
 
@@ -326,15 +376,41 @@ const App: React.FC = () => {
         )
     }
 
+    if (gameMode === 'online-player' && connectionStatus === 'failed') {
+        return (
+            <div className="bg-secondary p-8 rounded-lg text-center max-w-lg mx-auto">
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-16 w-16 text-red-500 mx-auto mb-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+                <h2 className="text-3xl font-bold text-red-400 mb-4">Connection Failed</h2>
+                <p className="mb-4 text-lg">Could not connect to the game with ID: <span className="font-mono bg-primary px-2 py-1 rounded">{gameId}</span></p>
+                <p className="text-gray-300 mb-8">Please check the Game ID and your internet connection, and ensure the host is waiting for players in the lobby.</p>
+                <button onClick={() => window.location.reload()} className="px-6 py-3 bg-highlight text-white text-lg font-bold rounded-lg hover:bg-opacity-80 transition-transform hover:scale-105">
+                  Back to Menu
+                </button>
+            </div>
+        )
+    }
+
     if (gameMode === 'online-player' && gamePhase === 'setup') {
         return (
-            <div className="bg-secondary p-8 rounded-lg text-center">
-                <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-highlight mx-auto mb-4"></div>
-                <h2 className="text-2xl font-bold text-highlight mb-4">Waiting for Host to Start...</h2>
-                <p className="mb-4">You have successfully joined the game. The host can see you in the lobby.</p>
-                <div className="bg-primary p-4 rounded-lg">
-                    <p className="text-lg text-gray-400 mb-2">Game ID:</p>
-                    <p className="text-2xl font-mono text-white">{gameId}</p>
+            <div className="bg-secondary p-8 rounded-lg grid md:grid-cols-2 gap-8 items-center">
+                <div className="text-center">
+                    <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-highlight mx-auto mb-4"></div>
+                    <h2 className="text-2xl font-bold text-highlight mb-4">Waiting for Host to Start...</h2>
+                    <p className="mb-4">You have successfully joined the game. The host can see you in the lobby.</p>
+                    <div className="bg-primary p-4 rounded-lg">
+                        <p className="text-lg text-gray-400 mb-2">Game ID:</p>
+                        <p className="text-2xl font-mono text-white">{gameId}</p>
+                    </div>
+                </div>
+                <div className="h-[50vh]">
+                    <LobbyChat
+                        chatLog={gameData.lobbyChatLog}
+                        onSendMessage={handleSendLobbyChatMessage}
+                        canSendMessage={true}
+                        title="Lobby Chat"
+                    />
                 </div>
             </div>
         );
@@ -353,6 +429,7 @@ const App: React.FC = () => {
             onJoinOnlineGame={joinOnlineGameAsPlayer}
             gameId={gameId}
             onStartGameForEveryone={startGame}
+            onSendLobbyMessage={handleSendLobbyChatMessage}
           />
         );
       case 'play':
@@ -397,6 +474,7 @@ const App: React.FC = () => {
 
   return (
       <div className="min-h-screen bg-primary text-light font-sans p-4 relative">
+          <audio ref={audioRef} />
           {isLoading && (
             <div className="fixed inset-0 bg-primary bg-opacity-90 flex items-center justify-center z-50">
                 <div className="text-center">

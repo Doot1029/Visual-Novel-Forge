@@ -19,6 +19,8 @@ export const INITIAL_GAME_DATA: GameData = {
   quests: [],
   coins: 0,
   chatLog: [],
+  lobbyChatLog: [],
+  lobbyMusicUrl: null,
 };
 
 export const MAX_PLAYERS = 5;

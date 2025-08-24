@@ -119,6 +119,8 @@ export interface GameData {
   quests: Quest[];
   coins: number;
   chatLog: ChatMessage[];
+  lobbyChatLog: ChatMessage[];
+  lobbyMusicUrl: string | null;
 }
 
 export type GameMode = 'local' | 'online-gm' | 'online-player';

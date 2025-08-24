@@ -1,22 +1,5 @@
 import { AssetType, Asset } from "./types";
 
-export const PREMADE_PROMPTS: Record<string, string[]> = {
-  "Fantasy": [
-    "A traveling merchant caravan must navigate a dangerous, monster-infested trade route while protecting a secret cargo.",
-    "In a magical academy, a group of students uncovers a conspiracy that threatens their entire world.",
-    "The last heir of a fallen kingdom, secretly living in exile, is discovered and must reclaim their throne.",
-  ],
-  "Sci-Fi": [
-    "A cyberpunk detective investigates a series of bizarre memory thefts in a rain-slicked metropolis.",
-    "A crew of space explorers crash-lands on an uncharted planet teeming with strange flora and fauna.",
-    "Survivors in a post-apocalyptic world discover a hidden sanctuary that may be too good to be true.",
-  ],
-  "Modern Mystery": [
-    "A group of strangers are invited to a remote island mansion for a weekend, only to find themselves trapped as a storm rolls in and a murder occurs.",
-    "An investigative journalist receives an anonymous tip about a massive corporate cover-up and must expose the truth before they are silenced.",
-  ],
-};
-
 export const PREMADE_BIOS: Record<string, string[]> = {
   "Fantasy": [
     "A disgraced knight on a quest to restore their family's honor.",

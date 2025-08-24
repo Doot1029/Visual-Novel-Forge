@@ -4,6 +4,7 @@ import { Action } from '../state/reducer';
 import { MAX_PLAYERS } from '../constants';
 import PremadeAssetBrowser from './PremadeAssetBrowser';
 import CharacterEditor from './CharacterEditor';
+import LobbyChat from './LobbyChat';
 
 interface SetupViewProps {
   gameData: GameData;
@@ -15,15 +16,17 @@ interface SetupViewProps {
   onJoinOnlineGame: (gameId: string, playerName: string) => void;
   gameId: string | null;
   onStartGameForEveryone: () => void;
+  onSendLobbyMessage: (message: string) => void;
 }
 
-const GameSetup: React.FC<Omit<SetupViewProps, 'onHostOnlineGame' | 'onJoinOnlineGame' | 'gameId' | 'onStartGameForEveryone' | 'onStartLocalGame'> & { onStartGame: (options?: { asPlayer: boolean, playerName: string }) => void, isOnline: boolean }> = ({ gameData, dispatch, players, setPlayers, onStartGame, isOnline }) => {
+const GameSetup: React.FC<Omit<SetupViewProps, 'onHostOnlineGame' | 'onJoinOnlineGame' | 'gameId' | 'onStartGameForEveryone' | 'onStartLocalGame' | 'onSendLobbyMessage'> & { onStartGame: (options?: { asPlayer: boolean, playerName: string }) => void, isOnline: boolean }> = ({ gameData, dispatch, players, setPlayers, onStartGame, isOnline }) => {
     const [activeTab, setActiveTab] = useState('game');
     const [assetUrl, setAssetUrl] = useState('');
     const [assetName, setAssetName] = useState('');
     const [assetType, setAssetType] = useState<AssetType>('background');
     const [hostAsPlayer, setHostAsPlayer] = useState(true);
     const [hostPlayerName, setHostPlayerName] = useState('Player 1');
+    const [error, setError] = useState<string | null>(null);
     
 
     const handlePlayerNameChange = (id: string, name: string) => {
@@ -86,13 +89,20 @@ const GameSetup: React.FC<Omit<SetupViewProps, 'onHostOnlineGame' | 'onJoinOnlin
     };
 
     const handleStartGameClick = () => {
+        if (gameData.characters.length <= 1) {
+            setError('You must create at least one character besides the Narrator.');
+            return;
+        }
+
         if (isOnline) {
             if (hostAsPlayer && !hostPlayerName.trim()) {
-                alert('Please enter a name for Player 1.');
+                setError('Please enter a name for Player 1.');
                 return;
             }
+            setError(null);
             onStartGame({ asPlayer: hostAsPlayer, playerName: hostPlayerName });
         } else {
+            setError(null);
             onStartGame();
         }
     };
@@ -116,6 +126,49 @@ const GameSetup: React.FC<Omit<SetupViewProps, 'onHostOnlineGame' | 'onJoinOnlin
                         <label className="text-lg font-semibold text-highlight">Game Master Rules</label>
                         <textarea value={gameData.gmRules} onChange={e => dispatch({type: 'UPDATE_GM_RULES', payload: e.target.value})} className="w-full mt-1 p-2 bg-accent rounded-md h-24 focus:ring-2 focus:ring-highlight outline-none" />
                     </div>
+                    {isOnline && (
+                        <div>
+                            <h3 className="text-lg font-semibold text-highlight mb-2">Lobby Music</h3>
+                            <div className="bg-accent p-3 rounded-md">
+                                {gameData.lobbyMusicUrl ? (
+                                    <div className="flex items-center justify-between">
+                                        <p className="text-sm italic">Music has been uploaded.</p>
+                                        <button 
+                                            onClick={() => dispatch({ type: 'SET_LOBBY_MUSIC', payload: null })}
+                                            className="text-red-500 hover:text-red-400 text-xs font-bold"
+                                        >
+                                            Remove Music
+                                        </button>
+                                    </div>
+                                ) : (
+                                    <label className="px-4 py-2 bg-blue-600 hover:bg-blue-700 rounded-md cursor-pointer text-sm">
+                                        Upload Music (MP3, WAV)
+                                        <input 
+                                            type="file" 
+                                            className="hidden" 
+                                            accept="audio/mpeg,audio/wav" 
+                                            onChange={(e) => {
+                                                const file = e.target.files?.[0];
+                                                if (file) {
+                                                    if (file.size > 11 * 1024 * 1024) { // 11MB limit
+                                                        alert('Music file is too large. Please choose a file smaller than 11MB.');
+                                                        e.target.value = ''; // Reset file input
+                                                        return;
+                                                    }
+                                                    const reader = new FileReader();
+                                                    reader.onload = (event) => {
+                                                        dispatch({ type: 'SET_LOBBY_MUSIC', payload: event.target?.result as string });
+                                                    };
+                                                    reader.readAsDataURL(file);
+                                                }
+                                                e.target.value = ''; // Reset file input
+                                            }}
+                                        />
+                                    </label>
+                                )}
+                            </div>
+                        </div>
+                    )}
                     <div>
                         <h3 className="text-lg font-semibold text-highlight mb-2">Players</h3>
                         { isOnline ? (
@@ -260,7 +313,8 @@ const GameSetup: React.FC<Omit<SetupViewProps, 'onHostOnlineGame' | 'onJoinOnlin
                 </div>
             )}
 
-            <div className="mt-8 text-center flex flex-col sm:flex-row justify-center gap-4 items-center">
+            <div className="mt-8 text-center">
+                 {error && <p className="text-red-500 font-bold mb-4">{error}</p>}
                 <button 
                     onClick={handleStartGameClick} 
                     className="px-8 py-4 bg-highlight text-white text-xl font-bold rounded-lg hover:bg-opacity-80 transition-transform hover:scale-105">
@@ -276,50 +330,62 @@ const SetupView: React.FC<SetupViewProps> = (props) => {
     const [mode, setMode] = useState<'menu' | 'local' | 'host' | 'join'>('menu');
     const [joinGameId, setJoinGameId] = useState('');
     const [joinPlayerName, setJoinPlayerName] = useState('');
+    const [joinError, setJoinError] = useState<string | null>(null);
 
     const handleJoin = () => {
         if (joinGameId.trim() && joinPlayerName.trim()) {
+            setJoinError(null);
             props.onJoinOnlineGame(joinGameId.trim(), joinPlayerName.trim());
         } else {
-            alert('Please enter your name and a valid Game ID.');
+            setJoinError('Please enter your name and a valid Game ID.');
         }
     };
     
     if (props.gameId && mode === 'host') {
         return (
-             <div className="bg-secondary p-8 rounded-lg text-center">
-                <h2 className="text-2xl font-bold text-highlight mb-4">Online Game Hosted!</h2>
-                <p className="mb-4">Share the Game ID below with your players so they can join.</p>
-                <div className="bg-primary p-4 rounded-lg">
-                    <p className="text-lg text-gray-400 mb-2">Game ID:</p>
-                    <input 
-                        type="text" 
-                        readOnly 
-                        value={props.gameId} 
-                        className="w-full max-w-sm mx-auto text-center p-2 text-2xl font-mono bg-accent rounded-md"
-                        onFocus={(e) => e.target.select()}
+             <div className="bg-secondary p-8 rounded-lg grid md:grid-cols-2 gap-8">
+                <div className="text-center">
+                    <h2 className="text-2xl font-bold text-highlight mb-4">Online Game Hosted!</h2>
+                    <p className="mb-4">Share the Game ID below with your players so they can join.</p>
+                    <div className="bg-primary p-4 rounded-lg">
+                        <p className="text-lg text-gray-400 mb-2">Game ID:</p>
+                        <input 
+                            type="text" 
+                            readOnly 
+                            value={props.gameId} 
+                            className="w-full max-w-sm mx-auto text-center p-2 text-2xl font-mono bg-accent rounded-md"
+                            onFocus={(e) => e.target.select()}
+                        />
+                    </div>
+                    <div className="mt-6 w-full max-w-sm mx-auto">
+                        <h3 className="text-xl font-semibold mb-2">Players Joined ({props.players.length})</h3>
+                        <div className="max-h-48 overflow-y-auto bg-primary p-2 rounded-md space-y-1 text-left">
+                            {props.players.length === 0 ? (
+                                <p className="text-gray-400 italic text-center">Waiting for players...</p>
+                            ) : (
+                                props.players.map(p => (
+                                    <div key={p.id} className="bg-accent p-2 rounded">{p.name}</div>
+                                ))
+                            )}
+                        </div>
+                    </div>
+                    <button
+                        onClick={props.onStartGameForEveryone}
+                        disabled={props.players.length === 0}
+                        className="mt-6 px-8 py-4 bg-highlight text-white text-xl font-bold rounded-lg hover:bg-opacity-80 transition-transform hover:scale-105 disabled:bg-gray-500 disabled:cursor-not-allowed"
+                        title={props.players.length === 0 ? "Waiting for at least one player to join" : "Start the game"}
+                    >
+                        Start Game for Everyone
+                    </button>
+                </div>
+                 <div className="h-[70vh]">
+                     <LobbyChat
+                        chatLog={props.gameData.lobbyChatLog}
+                        onSendMessage={props.onSendLobbyMessage}
+                        canSendMessage={true}
+                        title="Lobby Chat"
                     />
                 </div>
-                 <div className="mt-6 w-full max-w-sm mx-auto">
-                    <h3 className="text-xl font-semibold mb-2">Players Joined ({props.players.length})</h3>
-                    <div className="max-h-48 overflow-y-auto bg-primary p-2 rounded-md space-y-1 text-left">
-                        {props.players.length === 0 ? (
-                            <p className="text-gray-400 italic text-center">Waiting for players...</p>
-                        ) : (
-                            props.players.map(p => (
-                                <div key={p.id} className="bg-accent p-2 rounded">{p.name}</div>
-                            ))
-                        )}
-                    </div>
-                </div>
-                <button
-                    onClick={props.onStartGameForEveryone}
-                    disabled={props.players.length === 0}
-                    className="mt-6 px-8 py-4 bg-highlight text-white text-xl font-bold rounded-lg hover:bg-opacity-80 transition-transform hover:scale-105 disabled:bg-gray-500 disabled:cursor-not-allowed"
-                    title={props.players.length === 0 ? "Waiting for at least one player to join" : "Start the game"}
-                >
-                    Start Game for Everyone
-                </button>
             </div>
         )
     }
@@ -334,6 +400,7 @@ const SetupView: React.FC<SetupViewProps> = (props) => {
                 return (
                     <div className="bg-accent p-8 rounded-lg max-w-md mx-auto">
                         <h2 className="text-2xl font-bold text-highlight mb-4">Join Online Game</h2>
+                        {joinError && <p className="text-red-500 font-bold text-center mb-4">{joinError}</p>}
                         <div className="space-y-4">
                             <input
                                 type="text"

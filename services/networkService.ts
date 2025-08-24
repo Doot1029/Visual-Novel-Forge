@@ -1,5 +1,5 @@
 import { ref, onChildAdded, onValue, set, push, Unsubscribe, onDisconnect, onChildRemoved, remove } from 'firebase/database';
-import { GameData, Player, GamePhase } from '../types';
+import { GameData, Player, GamePhase, ChatMessage } from '../types';
 import { Action } from '../state/reducer';
 import { db } from './firebase';
 
@@ -13,7 +13,9 @@ export type NetworkMessage =
   // Sent by a player to the GM to perform a game action
   | { type: 'DISPATCH_ACTION'; payload: { action: Action } }
   // Sent by a player to the GM to signal the end of their turn
-  | { type: 'END_TURN'; payload: {} };
+  | { type: 'END_TURN'; payload: {} }
+  // Sent by a player or GM during the setup/lobby phase
+  | { type: 'LOBBY_CHAT_MESSAGE'; payload: { message: ChatMessage } };
 
 
 let currentGameId: string | null = null;
@@ -21,6 +23,7 @@ let messageHandler: ((message: NetworkMessage) => void) | null = null;
 
 // Keep track of Firebase listeners to detach them later
 let stateListenerUnsubscribe: Unsubscribe | null = null;
+let musicListenerUnsubscribe: Unsubscribe | null = null;
 let actionsListenerUnsubscribe: Unsubscribe | null = null;
 let presenceListenerUnsubscribe: Unsubscribe | null = null;
 let onDisconnectRef: any = null;
@@ -63,12 +66,42 @@ export const joinGameChannel = (gameId: string): void => {
     currentGameId = gameId;
 
     const statePathRef = ref(db, `games/${gameId}/state`);
-    
-    // Listen for state updates from the GM
+    const musicPathRef = ref(db, `games/${gameId}/music`);
+
+    let mainState: any = null;
+    let musicData: any = null;
+
+    const combineAndDispatch = () => {
+        if (mainState && messageHandler) {
+            const combinedPayload = { ...mainState };
+            if (musicData && musicData.lobbyMusicUrl) {
+                if (!combinedPayload.gameData) {
+                    combinedPayload.gameData = {};
+                }
+                combinedPayload.gameData.lobbyMusicUrl = musicData.lobbyMusicUrl;
+            } else if (combinedPayload.gameData) {
+                combinedPayload.gameData.lobbyMusicUrl = null;
+            }
+            messageHandler({ type: 'GAME_STATE_SYNC', payload: combinedPayload });
+        }
+    };
+
+    // Listen for main state updates from the GM
     stateListenerUnsubscribe = onValue(statePathRef, (snapshot) => {
         const stateSyncPayload = snapshot.val();
-        if (stateSyncPayload && messageHandler) {
-            messageHandler({ type: 'GAME_STATE_SYNC', payload: stateSyncPayload });
+        if (stateSyncPayload) {
+            mainState = stateSyncPayload;
+            combineAndDispatch();
+        }
+    });
+
+    // Listen for music updates separately
+    musicListenerUnsubscribe = onValue(musicPathRef, (snapshot) => {
+        musicData = snapshot.val();
+        // Only need to re-dispatch if mainState is already loaded.
+        // Otherwise, the state listener will handle the combined dispatch.
+        if (mainState) {
+            combineAndDispatch();
         }
     });
 };
@@ -76,6 +109,7 @@ export const joinGameChannel = (gameId: string): void => {
 /**
  * Sends a message over the network.
  * If the message is a GAME_STATE_SYNC, it's from the GM updating the state.
+ * It will split the music data from the main state to avoid large payloads.
  * Otherwise, it's a player action being sent to the GM.
  * @param message The network message to send.
  */
@@ -84,15 +118,29 @@ export const sendMessage = (message: NetworkMessage): void => {
         console.error("Network channel is not initialized. Cannot send message.");
         return;
     }
+    
+    const handleError = (error: any) => {
+        console.error("Failed to send message to Firebase:", error);
+        alert(`Network Error: Could not send data to the game. This might be due to a large asset file (like music) or a connection issue. The host may need to restart the lobby.\n\nDetails: ${error.message}`);
+    };
 
     if (message.type === 'GAME_STATE_SYNC') {
-        // GM is sending a state update for all players
+        // GM is sending a state update. We split it to avoid large payloads.
+        const { gameData, ...restOfPayload } = message.payload;
+        const { lobbyMusicUrl, ...restOfGameData } = gameData;
+
+        // Write main state without music
         const statePathRef = ref(db, `games/${currentGameId}/state`);
-        set(statePathRef, message.payload);
+        const mainStatePayload = { gameData: restOfGameData, ...restOfPayload };
+        set(statePathRef, mainStatePayload).catch(handleError);
+
+        // Write music data separately
+        const musicPathRef = ref(db, `games/${currentGameId}/music`);
+        set(musicPathRef, { lobbyMusicUrl: lobbyMusicUrl || null }).catch(handleError);
     } else {
         // Player is sending an action to the GM
         const actionsPathRef = ref(db, `games/${currentGameId}/actions`);
-        push(actionsPathRef, message); // `push` generates a unique key for each action
+        push(actionsPathRef, message).catch(handleError);
     }
 };
 
@@ -155,6 +203,10 @@ export const closeChannel = (): void => {
     if (stateListenerUnsubscribe) {
         stateListenerUnsubscribe();
         stateListenerUnsubscribe = null;
+    }
+    if (musicListenerUnsubscribe) {
+        musicListenerUnsubscribe();
+        musicListenerUnsubscribe = null;
     }
     if (actionsListenerUnsubscribe) {
         actionsListenerUnsubscribe();

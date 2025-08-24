@@ -17,6 +17,8 @@ export type Action =
   | { type: 'UPDATE_QUEST'; payload: Pick<Quest, 'id' | 'status'> }
   | { type: 'SET_COINS'; payload: number }
   | { type: 'ADD_CHAT_MESSAGE'; payload: ChatMessage }
+  | { type: 'ADD_LOBBY_CHAT_MESSAGE'; payload: ChatMessage }
+  | { type: 'SET_LOBBY_MUSIC'; payload: string | null }
   | { type: 'SET_GAME_DATA'; payload: GameData };
 
 
@@ -144,6 +146,16 @@ export const gameReducer = (state: GameData, action: Action): GameData => {
             ...state,
             chatLog: [...(state.chatLog || []), action.payload],
         };
+    case 'ADD_LOBBY_CHAT_MESSAGE':
+        return {
+            ...state,
+            lobbyChatLog: [...(state.lobbyChatLog || []), action.payload],
+        };
+    case 'SET_LOBBY_MUSIC':
+        return {
+            ...state,
+            lobbyMusicUrl: action.payload,
+        };
     case 'SET_GAME_DATA': {
         const payload = action.payload;
         // When receiving data from Firebase, empty arrays might be omitted.
@@ -156,6 +168,8 @@ export const gameReducer = (state: GameData, action: Action): GameData => {
             storyLog: payload.storyLog || [],
             quests: payload.quests || [],
             chatLog: payload.chatLog || [],
+            lobbyChatLog: payload.lobbyChatLog || [],
+            lobbyMusicUrl: payload.lobbyMusicUrl || null,
         };
     }
     default:
