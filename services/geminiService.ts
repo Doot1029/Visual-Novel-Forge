@@ -1,11 +1,18 @@
 import { GoogleGenAI, GenerateContentResponse, Type } from "@google/genai";
 import { GameData, Character, StoryLogEntry } from '../types';
 
-if (!process.env.API_KEY) {
-  throw new Error("API_KEY environment variable not set");
+// Safely access the API key. In a browser environment, `process` will be undefined.
+// Netlify's snippet injection can create `window.process` to provide the key.
+const API_KEY = (typeof process !== 'undefined' && process.env) ? process.env.API_KEY : null;
+
+let ai: GoogleGenAI | null = null;
+
+if (API_KEY) {
+  ai = new GoogleGenAI({ apiKey: API_KEY });
+} else {
+  console.warn("API_KEY not found. Gemini AI features will be disabled. For a deployed app, provide the key via hosting provider's environment variables or snippet injection.");
 }
 
-const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 
 const buildContext = (gameData: GameData, activeCharacter?: Character, promptOverride?: string): string => {
   const lastLogs = gameData.storyLog.slice(-10); // Get last 10 entries
@@ -38,6 +45,9 @@ const buildContext = (gameData: GameData, activeCharacter?: Character, promptOve
 }
 
 export const generateDialogue = async (gameData: GameData, activeCharacter: Character): Promise<string> => {
+  if (!ai) {
+    throw new Error("AI features are disabled. The API_KEY has not been provided to the application.");
+  }
   try {
     const context = buildContext(gameData, activeCharacter, `Based on the context, write a single line of dialogue for ${activeCharacter.name}. Be creative and move the story forward. Do not surround it with quotes.`);
     const response = await ai.models.generateContent({
@@ -61,6 +71,9 @@ export const generateDialogue = async (gameData: GameData, activeCharacter: Char
 
 
 export const generateChoices = async (gameData: GameData): Promise<{text: string}[]> => {
+    if (!ai) {
+      throw new Error("AI features are disabled. The API_KEY has not been provided to the application.");
+    }
     try {
         const context = buildContext(gameData, undefined, `Based on the current situation, generate 2-3 interesting and distinct choices for the next player. The choices should be short action descriptions.`);
         const response = await ai.models.generateContent({
