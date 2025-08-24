@@ -23,7 +23,7 @@ const App: React.FC = () => {
   const [gameId, setGameId] = useState<string | null>(null);
   const [myPlayerId, setMyPlayerId] = useState<string | null>(null);
   const [connectionStatus, setConnectionStatus] = useState<'disconnected' | 'connecting' | 'connected'>('disconnected');
-  const [sessionId] = useState(() => `session-${Date.now()}-${Math.random()}`);
+  const [sessionId] = useState(() => `session-${Date.now()}-${Math.random().toString(36).slice(2)}`);
   const connectionTimeoutRef = useRef<number | null>(null);
 
   // --- Firebase Auth ---
