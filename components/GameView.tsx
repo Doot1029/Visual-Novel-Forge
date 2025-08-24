@@ -1,7 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { GameData, Player, Character, DialogueLogEntry, ChoiceLogEntry, StoryLogEntry, Asset, AssetType, Quest, Item, GameMode } from '../types';
 import { Action } from '../state/reducer';
-import * as gemini from '../services/geminiService';
 import { NARRATOR_CHARACTER } from '../constants';
 
 // --- Types for Scene State ---
@@ -197,7 +196,6 @@ const InputController: React.FC<{
 }> = ({ dispatch, gameData, onEndTurn, isMyTurn, currentPlayer, currentPlayerIndex, onSceneChange, isPlayingBack }) => {
     const [dialogue, setDialogue] = useState('');
     const [choices, setChoices] = useState<{text: string}[]>([]);
-    const [isGenerating, setIsGenerating] = useState(false);
     const [stagedSceneChanges, setStagedSceneChanges] = useState<StoryLogEntry[]>([]);
     const [speakingCharacterId, setSpeakingCharacterId] = useState<string>(NARRATOR_CHARACTER.id);
     const [diceSides, setDiceSides] = useState(20);
@@ -245,16 +243,6 @@ const InputController: React.FC<{
         onEndTurn();
     }
 
-    const generateDialogue = async () => {
-        if (!speakingCharacter) return;
-        setIsGenerating(true);
-        try {
-            const result = await gemini.generateDialogue(gameData, speakingCharacter);
-            setDialogue(result);
-        } catch(e) { alert('AI dialogue generation failed.'); } 
-        finally { setIsGenerating(false); }
-    }
-    
     const handleSceneChange = (type: 'background' | 'cg' | 'sprite', assetId: string) => {
         if (!speakingCharacter) return;
 
@@ -394,10 +382,7 @@ const InputController: React.FC<{
                         </select>
                     </div>
 
-                    <div className="flex space-x-2">
-                        <input type="text" value={dialogue} onChange={e => setDialogue(e.target.value)} placeholder={`What does ${speakingCharacter.name} say or do?`} className="w-full p-2 bg-accent rounded-md focus:ring-2 focus:ring-highlight outline-none" />
-                        <button type="button" onClick={generateDialogue} disabled={isGenerating} className="px-4 py-2 bg-purple-600 hover:bg-purple-700 rounded-md disabled:bg-gray-500">{isGenerating ? '...' : 'AI ✨'}</button>
-                    </div>
+                    <input type="text" value={dialogue} onChange={e => setDialogue(e.target.value)} placeholder={`What does ${speakingCharacter.name} say or do?`} className="w-full p-2 bg-accent rounded-md focus:ring-2 focus:ring-highlight outline-none" />
 
                     <div className="mt-4">
                         <p className="text-sm text-gray-400">Optionally, add choices for the next player:</p>

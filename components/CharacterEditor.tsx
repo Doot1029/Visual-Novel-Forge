@@ -62,7 +62,7 @@ const CharacterEditor: React.FC<CharacterEditorProps> = ({ char, allSprites, upd
                         {Object.keys(PREMADE_BIOS).map(genre => <option key={genre} value={genre}>{genre}</option>)}
                     </select>
                     <button onClick={handleGenerateBio} className="text-xs px-2 py-1 bg-purple-600 hover:bg-purple-700 rounded-md">
-                        Generate Premade Bio
+                        Suggest Premade Bio
                     </button>
                 </div>
             </div>

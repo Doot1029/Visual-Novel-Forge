@@ -123,7 +123,7 @@ const GameSetup: React.FC<Omit<SetupViewProps, 'onHostOnlineGame' | 'onJoinOnlin
                                     {Object.keys(PREMADE_PROMPTS).map(genre => <option key={genre} value={genre}>{genre}</option>)}
                                 </select>
                                 <button onClick={handleGeneratePrompt} className="text-xs px-2 py-1 bg-purple-600 hover:bg-purple-700 rounded-md">
-                                    Generate
+                                    Suggest
                                 </button>
                             </div>
                         </div>
