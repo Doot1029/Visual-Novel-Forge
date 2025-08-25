@@ -65,8 +65,15 @@ const NARRATOR_CHARACTER = {
   spriteAssetIds: [],
   health: 999,
   maxHealth: 999,
-  mana: 999,
-  maxMana: 999,
+  status: 'active',
+  stats: {
+    strength: 10,
+    dexterity: 10,
+    constitution: 10,
+    intelligence: 10,
+    wisdom: 10,
+    charisma: 10,
+  },
 };
 
 const INITIAL_GAME_DATA = {
@@ -75,10 +82,11 @@ const INITIAL_GAME_DATA = {
   characters: [NARRATOR_CHARACTER],
   storyLog: [],
   quests: [],
-  coins: 0,
   chatLog: [],
   lobbyChatLog: [],
   lobbyMusicUrl: null,
+  players: [],
+  pendingAssetApprovals: [],
 };
 
 const MAX_PLAYERS = 5;
@@ -226,6 +234,8 @@ const signInAnonymouslyIfNeeded = () => {
             console.error("Auth state observer error:", error);
             reject(error);
         });
+    }).finally(() => {
+        authPromise = null;
     });
 
     return authPromise;
@@ -271,26 +281,95 @@ const gameReducer = (state, action) => {
                 id: `char-${Date.now()}`,
                 health: 100,
                 maxHealth: 100,
-                mana: 50,
-                maxMana: 50,
+                status: 'active',
+                stats: { strength: 10, dexterity: 10, constitution: 10, intelligence: 10, wisdom: 10, charisma: 10 },
                 ...action.payload 
             }],
         };
-    case 'UPDATE_CHARACTER':
+    case 'UPDATE_CHARACTER': {
+        const originalChar = state.characters.find(c => c.id === action.payload.id);
+        const updatedChar = action.payload;
+        const newLogEntries = [];
+
+        if (originalChar && originalChar.health > 0 && updatedChar.health <= 0) {
+            updatedChar.status = 'defeated';
+            newLogEntries.push({ type: 'stat_change', text: `${updatedChar.name} has been defeated!` });
+            newLogEntries.push({ type: 'sprite_change', characterId: updatedChar.id, assetId: null });
+        } else if (originalChar && originalChar.status === 'defeated' && updatedChar.status === 'active') {
+            newLogEntries.push({ type: 'stat_change', text: `${updatedChar.name} has returned to the fight!` });
+        }
+        
         return {
             ...state,
-            characters: state.characters.map(c => c.id === action.payload.id ? action.payload : c)
-        }
+            characters: state.characters.map(c => c.id === updatedChar.id ? updatedChar : c),
+            storyLog: [...state.storyLog, ...newLogEntries]
+        };
+    }
     case 'DELETE_CHARACTER':
         return {
             ...state,
             characters: state.characters.filter(c => c.id !== action.payload.id)
         }
-    case 'ADD_LOG_ENTRY':
-      return {
-        ...state,
-        storyLog: [...state.storyLog, action.payload],
-      };
+    case 'ADD_LOG_ENTRY': {
+        if (action.payload.type !== 'choice_selection' || !action.payload.choice.effects) {
+             return {
+                ...state,
+                storyLog: [...state.storyLog, action.payload],
+             };
+        }
+
+        const { choice, playerId } = action.payload;
+        const { effects } = choice;
+        
+        let newPlayers = [...state.players];
+        let newCharacters = [...state.characters];
+        const newLogEntries = [action.payload];
+        
+        const playerIndex = newPlayers.findIndex(p => p.id === playerId);
+        if (playerIndex !== -1 && effects.coins) {
+            const player = { ...newPlayers[playerIndex] };
+            player.coins = (player.coins || 0) + effects.coins;
+            newPlayers[playerIndex] = player;
+            newLogEntries.push({
+                type: 'stat_change',
+                text: `${player.name} ${effects.coins > 0 ? 'gained' : 'lost'} ${Math.abs(effects.coins)} coins.`
+            });
+        }
+        
+        const targetCharIndex = newCharacters.findIndex(c => c.id === effects.targetCharacterId);
+        if (targetCharIndex !== -1) {
+            const targetChar = { ...newCharacters[targetCharIndex] };
+            let updated = false;
+
+            if (effects.hp) {
+                const oldHp = targetChar.health;
+                const oldStatus = targetChar.status;
+                targetChar.health = Math.max(0, oldHp + effects.hp);
+                 newLogEntries.push({
+                    type: 'stat_change',
+                    text: `${targetChar.name} ${effects.hp > 0 ? 'gained' : 'lost'} ${Math.abs(effects.hp)} HP. (${targetChar.health}/${targetChar.maxHealth})`
+                });
+                updated = true;
+
+                if (targetChar.health <= 0 && oldStatus === 'active') {
+                    targetChar.status = 'defeated';
+                    newLogEntries.push({ type: 'stat_change', text: `${targetChar.name} has been defeated!`});
+                    newLogEntries.push({ type: 'sprite_change', characterId: targetChar.id, assetId: null });
+                }
+            }
+
+            if(updated) {
+                 newCharacters[targetCharIndex] = targetChar;
+            }
+        }
+        
+        return {
+            ...state,
+            players: newPlayers,
+            characters: newCharacters,
+            storyLog: [...state.storyLog, ...newLogEntries]
+        };
+    }
     case 'RESET_STORY_LOG':
         return {
             ...state,
@@ -324,32 +403,22 @@ const gameReducer = (state, action) => {
         }
 
         const updatedQuests = state.quests.map(q => q.id === action.payload.id ? { ...q, status: action.payload.status } : q);
-        const updatedCharacters = state.characters;
-        let updatedCoins = state.coins;
         const logEntries = [];
 
         if (action.payload.status === 'completed') {
             const { rewards, title } = questToUpdate;
-            updatedCoins += rewards.coins;
             logEntries.push({type: 'quest_status', text: `Quest Completed: ${title}`});
             if (rewards.coins > 0) {
-                 logEntries.push({type: 'stat_change', text: `Party received ${rewards.coins} coins.`});
+                 logEntries.push({type: 'stat_change', text: `Party received a reward of ${rewards.coins} coins. The GM will distribute them.`});
             }
         }
         
         return {
             ...state,
             quests: updatedQuests,
-            characters: updatedCharacters,
-            coins: updatedCoins,
             storyLog: [...state.storyLog, ...logEntries]
         };
     }
-    case 'SET_COINS':
-        return {
-            ...state,
-            coins: action.payload >= 0 ? action.payload : 0,
-        };
     case 'ADD_CHAT_MESSAGE':
         return {
             ...state,
@@ -365,6 +434,61 @@ const gameReducer = (state, action) => {
             ...state,
             lobbyMusicUrl: action.payload,
         };
+    case 'ADD_PLAYER': {
+        if (state.players.length >= MAX_PLAYERS) return state;
+        const newPlayer = { ...action.payload, coins: 0 };
+        return { ...state, players: [...state.players, newPlayer] };
+    }
+    case 'UPDATE_PLAYER': {
+        return { ...state, players: state.players.map(p => p.id === action.payload.id ? action.payload : p) };
+    }
+    case 'REMOVE_PLAYER': {
+        return { ...state, players: state.players.filter(p => p.id !== action.payload.id) };
+    }
+    case 'SET_PLAYERS': {
+        // Ensure all players have a coins property
+        const playersWithCoins = action.payload.map(p => ({ ...p, coins: p.coins || 0 }));
+        return { ...state, players: playersWithCoins };
+    }
+    case 'SUBMIT_ASSET_FOR_APPROVAL': {
+        const { asset, characterIdToAssign, submittingPlayerId } = action.payload;
+        const newAsset = { id: `asset-${Date.now()}`, isPublished: false, ...asset };
+        const newApproval = { assetId: newAsset.id, characterIdToAssign, submittingPlayerId };
+        return {
+            ...state,
+            assets: [...state.assets, newAsset],
+            pendingAssetApprovals: [...state.pendingAssetApprovals, newApproval],
+            players: state.players.map(p => p.id === submittingPlayerId ? {...p, isWaitingForApproval: true} : p)
+        }
+    }
+    case 'APPROVE_ASSET': {
+        const { assetId, characterIdToAssign, submittingPlayerId } = action.payload;
+        
+        const characterIndex = state.characters.findIndex(c => c.id === characterIdToAssign);
+        if (characterIndex === -1) return state;
+
+        const newCharacter = { ...state.characters[characterIndex] };
+        newCharacter.spriteAssetIds = [...(newCharacter.spriteAssetIds || []), assetId];
+        const newCharacters = [...state.characters];
+        newCharacters[characterIndex] = newCharacter;
+
+        return {
+            ...state,
+            assets: state.assets.map(a => a.id === assetId ? {...a, isPublished: true} : a),
+            characters: newCharacters,
+            pendingAssetApprovals: state.pendingAssetApprovals.filter(p => p.assetId !== assetId),
+            players: state.players.map(p => p.id === submittingPlayerId ? {...p, isWaitingForApproval: false} : p)
+        }
+    }
+    case 'REJECT_ASSET': {
+        const { assetId, submittingPlayerId } = action.payload;
+        return {
+            ...state,
+            assets: state.assets.filter(a => a.id !== assetId),
+            pendingAssetApprovals: state.pendingAssetApprovals.filter(p => p.assetId !== assetId),
+            players: state.players.map(p => p.id === submittingPlayerId ? {...p, isWaitingForApproval: false} : p)
+        }
+    }
     case 'SET_GAME_DATA': {
         const payload = action.payload;
         return {
@@ -377,6 +501,8 @@ const gameReducer = (state, action) => {
             chatLog: payload.chatLog || [],
             lobbyChatLog: payload.lobbyChatLog || [],
             lobbyMusicUrl: payload.lobbyMusicUrl || null,
+            players: payload.players || [],
+            pendingAssetApprovals: payload.pendingAssetApprovals || [],
         };
     }
     default:
@@ -540,8 +666,34 @@ const network = (() => {
 })();
 
 
+// --- FROM components/ImagePreviewModal.tsx ---
+const ImagePreviewModal = ({ asset, onClose }) => {
+    return (
+        React.createElement('div', { 
+            className: "fixed inset-0 bg-primary bg-opacity-95 z-[100] flex items-center justify-center p-4",
+            'aria-modal': "true",
+            role: "dialog",
+            onClick: onClose 
+        },
+            React.createElement('div', { 
+                className: "bg-secondary rounded-lg shadow-2xl w-full max-w-4xl flex flex-col relative border-2 border-accent",
+                onClick: (e) => e.stopPropagation()
+            },
+                React.createElement('div', { className: "flex justify-between items-center p-4 border-b border-accent" },
+                    React.createElement('h2', { className: "text-xl font-bold text-highlight" }, asset.name),
+                    React.createElement('button', { onClick: onClose, className: "text-light hover:text-highlight text-3xl font-bold", 'aria-label': "Close Image Preview" }, '×')
+                ),
+                React.createElement('div', { className: "p-4 flex-1 overflow-hidden flex items-center justify-center" },
+                    React.createElement('img', { src: asset.url, alt: asset.name, className: "max-w-full max-h-[75vh] object-contain" })
+                )
+            )
+        )
+    );
+};
+
+
 // --- FROM components/PremadeAssetBrowser.tsx ---
-const PremadeAssetBrowser = ({ onAddAsset, onAddAssetCollection }) => {
+const PremadeAssetBrowser = ({ onAddAsset, onAddAssetCollection, onPreviewAsset }) => {
   const [category, setCategory] = React.useState('backgrounds');
 
   const renderContent = () => {
@@ -551,7 +703,7 @@ const PremadeAssetBrowser = ({ onAddAsset, onAddAssetCollection }) => {
                  <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 max-h-64 overflow-y-auto p-1 bg-primary rounded">
                     {PREMADE_BACKGROUNDS.map(asset => (
                         <div key={asset.url} className="bg-secondary p-2 rounded-lg group relative">
-                            <img src={asset.url} alt={asset.name} className="w-full h-24 object-cover rounded-md" />
+                            <img src={asset.url} alt={asset.name} className="w-full h-24 object-cover rounded-md cursor-pointer" onClick={() => onPreviewAsset(asset)} />
                             <p className="text-xs mt-1 truncate">{asset.name}</p>
                             <div className="absolute inset-0 bg-black bg-opacity-60 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
                             <button
@@ -572,7 +724,7 @@ const PremadeAssetBrowser = ({ onAddAsset, onAddAssetCollection }) => {
                 <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 max-h-64 overflow-y-auto p-1 bg-primary rounded">
                     {collections.map(collection => (
                          <div key={collection.name} className="bg-secondary p-2 rounded-lg group relative">
-                            <img src={collection.assets[0].url} alt={collection.name} className="w-full h-24 object-cover rounded-md" />
+                            <img src={collection.assets[0].url} alt={collection.name} className="w-full h-24 object-cover rounded-md cursor-pointer" onClick={() => onPreviewAsset(collection.assets[0])}/>
                             <p className="text-xs mt-1 truncate">{collection.name} ({collection.assets.length} assets)</p>
                             <div className="absolute inset-0 bg-black bg-opacity-60 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
                             <button
@@ -625,27 +777,30 @@ const CharacterEditor = ({ char, allSprites, updateCharacter, onDeleteCharacter 
             updateCharacter({ ...char, bio: randomBio });
         }
     };
+    
+    const handleStatChange = (statName, value) => {
+        const newStats = { ...char.stats, [statName]: Math.max(0, parseInt(value) || 0) };
+        updateCharacter({ ...char, stats: newStats });
+    };
 
     return (
         <div className="bg-accent p-4 rounded-lg space-y-3 relative">
             <button data-id={char.id} onClick={onDeleteCharacter} className="absolute top-2 right-2 text-red-500 hover:text-red-400 p-1 rounded-full font-bold z-10">X</button>
-            <input value={char.name} onChange={e => updateCharacter({ ...char, name: e.target.value })} className="w-full p-2 bg-primary rounded-md font-bold" placeholder="Character Name" />
+            <div className="flex gap-4">
+                <input value={char.name} onChange={e => updateCharacter({ ...char, name: e.target.value })} className="flex-1 p-2 bg-primary rounded-md font-bold" placeholder="Character Name" />
+                <select value={char.status || 'active'} onChange={e => updateCharacter({ ...char, status: e.target.value })} className="p-2 bg-primary rounded-md">
+                    <option value="active">Active</option>
+                    <option value="defeated">Defeated</option>
+                </select>
+            </div>
             
-            <div className="grid grid-cols-2 gap-2">
+            <div className="grid grid-cols-1 gap-2">
                 <div>
                     <label className="text-xs text-gray-400">Health (HP)</label>
                     <div className="flex items-center gap-1">
-                    <input type="number" value={char.health} onChange={e => updateCharacter({ ...char, health: Math.max(0, parseInt(e.target.value) || 0) })} className="w-full p-1 text-sm bg-primary rounded-md" />
+                    <input type="number" value={char.health} onChange={e => updateCharacter({ ...char, health: parseInt(e.target.value) || 0 })} className="w-full p-1 text-sm bg-primary rounded-md" />
                     <span className="text-gray-400">/</span>
                     <input type="number" value={char.maxHealth} onChange={e => updateCharacter({ ...char, maxHealth: Math.max(1, parseInt(e.target.value) || 1) })} className="w-full p-1 text-sm bg-primary rounded-md" />
-                    </div>
-                </div>
-                <div>
-                    <label className="text-xs text-gray-400">Mana (MP)</label>
-                    <div className="flex items-center gap-1">
-                    <input type="number" value={char.mana} onChange={e => updateCharacter({ ...char, mana: Math.max(0, parseInt(e.target.value) || 0) })} className="w-full p-1 text-sm bg-primary rounded-md" />
-                     <span className="text-gray-400">/</span>
-                    <input type="number" value={char.maxMana} onChange={e => updateCharacter({ ...char, maxMana: Math.max(0, parseInt(e.target.value) || 0) })} className="w-full p-1 text-sm bg-primary rounded-md" />
                     </div>
                 </div>
             </div>
@@ -659,6 +814,18 @@ const CharacterEditor = ({ char, allSprites, updateCharacter, onDeleteCharacter 
                     <button onClick={handleGenerateBio} className="text-xs px-2 py-1 bg-purple-600 hover:bg-purple-700 rounded-md">
                         Suggest Premade Bio
                     </button>
+                </div>
+            </div>
+
+            <div>
+                <h4 className="text-sm font-semibold mb-1">Stats</h4>
+                <div className="grid grid-cols-3 gap-2 text-sm">
+                    {Object.entries(char.stats || {}).map(([statName, statValue]) => (
+                        <div key={statName}>
+                            <label className="capitalize text-xs text-gray-400">{statName}</label>
+                            <input type="number" value={statValue} onChange={e => handleStatChange(statName, e.target.value)} className="w-full p-1 bg-primary rounded-md" />
+                        </div>
+                    ))}
                 </div>
             </div>
             
@@ -927,7 +1094,7 @@ const TutorialModal = ({ onClose }) => {
 };
 
 // --- FROM components/SetupView.tsx ---
-const GameSetup = ({ gameData, dispatch, players, setPlayers, onStartGame, isOnline }) => {
+const GameSetup = ({ gameData, dispatch, onStartGame, isOnline, onPreviewAsset }) => {
     const [activeTab, setActiveTab] = React.useState('game');
     const [assetUrl, setAssetUrl] = React.useState('');
     const [assetName, setAssetName] = React.useState('');
@@ -935,19 +1102,21 @@ const GameSetup = ({ gameData, dispatch, players, setPlayers, onStartGame, isOnl
     const [hostAsPlayer, setHostAsPlayer] = React.useState(true);
     const [hostPlayerName, setHostPlayerName] = React.useState('Player 1');
     const [error, setError] = React.useState(null);
+    const { players } = gameData;
     
     const handlePlayerNameChange = (id, name) => {
-        setPlayers(players.map(p => p.id === id ? {...p, name} : p));
+        const player = players.find(p => p.id === id);
+        if (player) {
+            dispatch({ type: 'UPDATE_PLAYER', payload: {...player, name} });
+        }
     }
 
     const addPlayer = () => {
-        if (players.length < MAX_PLAYERS) {
-            const newPlayer = { id: `p-${Date.now()}`, name: `Player ${players.length + 1}`, lastSeenLogIndex: 0 };
-            setPlayers([...players, newPlayer]);
-        }
+        const newPlayer = { id: `p-${Date.now()}`, name: `Player ${players.length + 1}`, lastSeenLogIndex: 0 };
+        dispatch({ type: 'ADD_PLAYER', payload: newPlayer });
     }
     const removePlayer = (id) => {
-        setPlayers(players.filter(p => p.id !== id));
+        dispatch({ type: 'REMOVE_PLAYER', payload: { id } });
     }
 
     const addNewCharacter = () => {
@@ -1009,6 +1178,14 @@ const GameSetup = ({ gameData, dispatch, players, setPlayers, onStartGame, isOnl
             setError(null);
             onStartGame({ asPlayer: hostAsPlayer, playerName: hostPlayerName });
         } else {
+             if (players.length < 1) {
+                setError('You need at least one player for a local game.');
+                return;
+            }
+            if (players.some(p => !p.name.trim())) {
+                setError('All players must have a name before starting.');
+                return;
+            }
             setError(null);
             onStartGame();
         }
@@ -1204,13 +1381,14 @@ const GameSetup = ({ gameData, dispatch, players, setPlayers, onStartGame, isOnl
                         <PremadeAssetBrowser 
                            onAddAsset={(asset) => dispatch({ type: 'ADD_ASSET', payload: asset })}
                            onAddAssetCollection={handleAddAssetCollection}
+                           onPreviewAsset={onPreviewAsset}
                         />
                     </div>
 
                      <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-4">
                         {gameData.assets.map(asset => (
                             <div key={asset.id} className="bg-accent p-2 rounded-lg relative">
-                                <img src={asset.url} alt={asset.name} className="w-full h-32 object-cover rounded-md mb-2" />
+                                <img src={asset.url} alt={asset.name} className="w-full h-32 object-cover rounded-md mb-2 cursor-pointer" onClick={() => onPreviewAsset(asset)} />
                                 <p className="text-sm truncate" title={asset.name}>{asset.name}</p>
                                 <p className="text-xs text-gray-400 capitalize">{asset.type.replace('Sprite', ' Sprite')}</p>
                             </div>
@@ -1236,6 +1414,7 @@ const SetupView = (props) => {
     const [joinGameId, setJoinGameId] = React.useState('');
     const [joinPlayerName, setJoinPlayerName] = React.useState('');
     const [joinError, setJoinError] = React.useState(null);
+    const { players } = props.gameData;
 
     const handleJoin = () => {
         if (joinGameId.trim() && joinPlayerName.trim()) {
@@ -1263,12 +1442,12 @@ const SetupView = (props) => {
                         />
                     </div>
                     <div className="mt-6 w-full max-w-sm mx-auto">
-                        <h3 className="text-xl font-semibold mb-2">Players Joined ({props.players.length})</h3>
+                        <h3 className="text-xl font-semibold mb-2">Players Joined ({players.length})</h3>
                         <div className="max-h-48 overflow-y-auto bg-primary p-2 rounded-md space-y-1 text-left">
-                            {props.players.length === 0 ? (
+                            {players.length === 0 ? (
                                 <p className="text-gray-400 italic text-center">Waiting for players...</p>
                             ) : (
-                                props.players.map(p => (
+                                players.map(p => (
                                     <div key={p.id} className="bg-accent p-2 rounded">{p.name}</div>
                                 ))
                             )}
@@ -1276,9 +1455,9 @@ const SetupView = (props) => {
                     </div>
                     <button
                         onClick={props.onStartGameForEveryone}
-                        disabled={props.players.length === 0}
+                        disabled={players.length === 0}
                         className="mt-6 px-8 py-4 bg-highlight text-white text-xl font-bold rounded-lg hover:bg-opacity-80 transition-transform hover:scale-105 disabled:bg-gray-500 disabled:cursor-not-allowed"
-                        title={props.players.length === 0 ? "Waiting for at least one player to join" : "Start the game"}
+                        title={players.length === 0 ? "Waiting for at least one player to join" : "Start the game"}
                     >
                         Start Game for Everyone
                     </button>
@@ -1427,9 +1606,10 @@ const HistoryLogContent = ({ gameData }) => {
                         );
                         break;
                     case 'choice_selection':
+                        const player = gameData.players.find(p => p.id === log.playerId);
                         content = (
                             <p className="text-yellow-400 italic">
-                                {getCharacter(log.characterId)?.name || 'A player'} chose: "{log.text}"
+                                {player?.name || 'A player'} chose: "{log.choice.text}"
                             </p>
                         );
                         break;
@@ -1456,16 +1636,25 @@ const StatusContent = ({gameData}) => {
     return (
         <div className="flex-1 overflow-y-auto pr-2">
             <div className="mb-4">
-                <h3 className="font-bold text-purple-400 mb-2">Party Coins: <span className="text-yellow-400">{gameData.coins} 💰</span></h3>
+                <h3 className="font-bold text-purple-400 mb-2">Player Coins</h3>
+                <div className="space-y-1 text-sm">
+                    {gameData.players.map(player => (
+                        <div key={player.id} className="flex justify-between bg-accent p-2 rounded-md">
+                            <span className="font-semibold">{player.name}</span>
+                            <span className="text-yellow-400 font-mono">{player.coins || 0} 💰</span>
+                        </div>
+                    ))}
+                </div>
             </div>
             
             <div className="mb-4">
                 <h3 className="font-bold text-purple-400 mb-2">Character Stats</h3>
                 <div className="space-y-3">
                 {gameData.characters.filter(c => c.id !== 'narrator').map(char => (
-                    <div key={char.id} className="bg-accent p-2 rounded-lg">
+                    <div key={char.id} className={`bg-accent p-2 rounded-lg transition-all ${char.status === 'defeated' ? 'opacity-50' : ''}`}>
                         <div className="flex justify-between items-center mb-1">
                              <p className="font-semibold">{char.name}</p>
+                             {char.status === 'defeated' && <span className="text-xs font-bold text-red-500 bg-primary px-2 py-0.5 rounded-full">DEFEATED</span>}
                         </div>
                        
                         <div title="Health">
@@ -1475,13 +1664,17 @@ const StatusContent = ({gameData}) => {
                             </div>
                             <span className="text-xs">{char.health} / {char.maxHealth}</span>
                         </div>
-                         <div title="Mana">
-                            <span className="text-xs text-blue-400">MP</span>
-                            <div className="w-full bg-primary rounded-full h-2.5">
-                                <div className="bg-blue-600 h-2.5 rounded-full" style={{width: `${(char.mana / char.maxMana) * 100}%`}}></div>
+                        <details className="text-xs mt-1">
+                            <summary className="cursor-pointer text-gray-400">Show Stats</summary>
+                            <div className="grid grid-cols-3 gap-x-2 gap-y-1 mt-1">
+                                {Object.entries(char.stats).map(([stat, value]) => (
+                                    <div key={stat} className="flex justify-between bg-primary p-1 rounded">
+                                        <span className="font-bold uppercase">{stat.slice(0, 3)}</span>
+                                        <span>{value}</span>
+                                    </div>
+                                ))}
                             </div>
-                            <span className="text-xs">{char.mana} / {char.maxMana}</span>
-                        </div>
+                        </details>
                     </div>
                 ))}
                 </div>
@@ -1505,27 +1698,88 @@ const StatusContent = ({gameData}) => {
     );
 }
 
+const ChoiceEffectsPopover = ({ choice, onUpdate, characters, onClose }) => {
+    const effects = choice.effects || {};
+    const handleEffectChange = (type, value) => {
+        const numValue = parseInt(value) || 0;
+        onUpdate({
+            ...choice,
+            effects: { ...effects, [type]: numValue }
+        });
+    };
+    const handleTargetChange = (e) => {
+        onUpdate({
+            ...choice,
+            effects: { ...effects, targetCharacterId: e.target.value }
+        });
+    }
+
+    return (
+        <div className="fixed inset-0 bg-primary bg-opacity-70 z-50 flex items-center justify-center" onClick={onClose}>
+            <div className="bg-secondary p-4 rounded-lg border-2 border-accent w-full max-w-sm space-y-3" onClick={e => e.stopPropagation()}>
+                <h4 className="text-lg font-bold text-highlight">Set Choice Effects</h4>
+                <p className="text-xs text-gray-400">These effects will be hidden from the next player.</p>
+                
+                <div>
+                    <label className="text-sm">Coin Change (for next player)</label>
+                    <input type="number" value={effects.coins || 0} onChange={e => handleEffectChange('coins', e.target.value)} className="w-full p-2 mt-1 bg-primary rounded-md" placeholder="+10, -5..." />
+                </div>
+
+                <div>
+                    <label className="text-sm">Target Character for HP</label>
+                    <select value={effects.targetCharacterId || ''} onChange={handleTargetChange} className="w-full p-2 mt-1 bg-primary rounded-md">
+                        <option value="">-- Select Character --</option>
+                        {characters.filter(c => c.id !== 'narrator' && c.status === 'active').map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                    </select>
+                </div>
+                
+                <div>
+                    <label className="text-sm">HP Change</label>
+                    <input type="number" value={effects.hp || 0} onChange={e => handleEffectChange('hp', e.target.value)} className="w-full p-2 mt-1 bg-primary rounded-md" disabled={!effects.targetCharacterId} />
+                </div>
+
+                <button onClick={onClose} className="w-full p-2 mt-2 bg-highlight text-white font-bold rounded-lg hover:bg-opacity-80">Done</button>
+            </div>
+        </div>
+    )
+}
+
 const InputController = ({ dispatch, gameData, onEndTurn, isMyTurn, currentPlayer, currentPlayerIndex, onSceneChange, isPlayingBack }) => {
     const [dialogue, setDialogue] = React.useState('');
     const [choices, setChoices] = React.useState([]);
     const [stagedSceneChanges, setStagedSceneChanges] = React.useState([]);
     const [speakingCharacterId, setSpeakingCharacterId] = React.useState(NARRATOR_CHARACTER.id);
     const [diceSides, setDiceSides] = React.useState(20);
+    const [editingChoiceIndex, setEditingChoiceIndex] = React.useState(null);
+
+    // Player Asset Submission State
+    const [isSubmittingSprite, setIsSubmittingSprite] = React.useState(false);
+    const [newSpriteName, setNewSpriteName] = React.useState('');
+    const [newSpriteFile, setNewSpriteFile] = React.useState(null);
+    const [newSpriteAssignee, setNewSpriteAssignee] = React.useState('');
+
 
     React.useEffect(() => {
         setSpeakingCharacterId(NARRATOR_CHARACTER.id);
     }, [currentPlayer?.id]);
 
-    const speakingCharacter = gameData.characters.find(c => c.id === speakingCharacterId);
+    React.useEffect(() => {
+        if (gameData.characters.filter(c => c.id !== 'narrator').length > 0) {
+            setNewSpriteAssignee(gameData.characters.filter(c => c.id !== 'narrator')[0].id);
+        }
+    }, []);
+    
+    const activeCharacters = gameData.characters.filter(c => c.status !== 'defeated');
+    const speakingCharacter = activeCharacters.find(c => c.id === speakingCharacterId);
     
     const lastLog = gameData.storyLog[gameData.storyLog.length - 1];
     const choicesToShow = lastLog?.type === 'choice' ? lastLog.choices : null;
 
-    const handleAddChoice = () => setChoices([...choices, {text: ''}]);
+    const handleAddChoice = () => setChoices([...choices, {text: '', effects: {}}]);
     const handleRemoveChoice = (index) => setChoices(choices.filter((_, i) => i !== index));
-    const handleChoiceChange = (index, text) => {
+    const handleChoiceChange = (index, updatedChoice) => {
         const newChoices = [...choices];
-        newChoices[index].text = text;
+        newChoices[index] = updatedChoice;
         setChoices(newChoices);
     }
     
@@ -1549,8 +1803,8 @@ const InputController = ({ dispatch, gameData, onEndTurn, isMyTurn, currentPlaye
         onEndTurn();
     }
     
-    const handleChoiceSelection = (choiceText) => {
-        dispatch({ type: 'ADD_LOG_ENTRY', payload: { type: 'choice_selection', playerId: currentPlayer.id, characterId: speakingCharacterId, text: choiceText } });
+    const handleChoiceSelection = (choice) => {
+        dispatch({ type: 'ADD_LOG_ENTRY', payload: { type: 'choice_selection', playerId: currentPlayer.id, characterId: speakingCharacterId, choice } });
         onEndTurn();
     }
 
@@ -1604,6 +1858,37 @@ const InputController = ({ dispatch, gameData, onEndTurn, isMyTurn, currentPlaye
             result: result,
         }});
     };
+    
+    const handleSubmitSprite = () => {
+        if (!newSpriteFile || !newSpriteName.trim() || !newSpriteAssignee) {
+            alert('Please provide a file, a name, and a target character for the new sprite.');
+            return;
+        }
+
+        const reader = new FileReader();
+        reader.onload = (e) => {
+            const url = e.target?.result;
+            const assetPayload = {
+                type: 'characterSprite',
+                url,
+                name: newSpriteName,
+                ownerId: currentPlayer.id,
+            };
+            dispatch({
+                type: 'SUBMIT_ASSET_FOR_APPROVAL',
+                payload: {
+                    asset: assetPayload,
+                    characterIdToAssign: newSpriteAssignee,
+                    submittingPlayerId: currentPlayer.id
+                }
+            });
+            // Reset form
+            setIsSubmittingSprite(false);
+            setNewSpriteFile(null);
+            setNewSpriteName('');
+        };
+        reader.readAsDataURL(newSpriteFile);
+    };
 
     if (!isMyTurn) {
         if (isPlayingBack) {
@@ -1620,7 +1905,16 @@ const InputController = ({ dispatch, gameData, onEndTurn, isMyTurn, currentPlaye
         );
     }
     
-    if (!speakingCharacter) return <div className="bg-secondary p-4 rounded-lg mt-4 text-center text-red-500">Error: Selected character not found.</div>;
+    if (currentPlayer?.isWaitingForApproval) {
+        return (
+            <div className="bg-secondary p-4 rounded-lg mt-4 text-center">
+                <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-highlight mx-auto mb-3"></div>
+                <p className="font-bold text-xl text-yellow-400">Waiting for GM approval for your submitted asset...</p>
+            </div>
+        );
+    }
+    
+    if (!speakingCharacter) return <div className="bg-secondary p-4 rounded-lg mt-4 text-center text-red-500">Error: Selected character not found or is defeated. Please select another.</div>;
     if (!currentPlayer) return <div className="bg-secondary p-4 rounded-lg mt-4 text-center text-red-500">Error: Current player not found.</div>;
 
 
@@ -1629,28 +1923,21 @@ const InputController = ({ dispatch, gameData, onEndTurn, isMyTurn, currentPlaye
 
     return (
         <div className="bg-secondary p-4 rounded-lg mt-4">
+            {editingChoiceIndex !== null && (
+                <ChoiceEffectsPopover 
+                    choice={choices[editingChoiceIndex]}
+                    onUpdate={(updatedChoice) => handleChoiceChange(editingChoiceIndex, updatedChoice)}
+                    characters={activeCharacters}
+                    onClose={() => setEditingChoiceIndex(null)}
+                />
+            )}
              <p className="font-bold text-xl mb-2">Your Turn! (<span className="text-highlight">{currentPlayer.name}</span>)</p>
              {choicesToShow ? (
                 <div>
                     <p className="text-lg mb-2">You must make a choice:</p>
-                    <div className="mb-4">
-                        <label htmlFor="choose-as-select" className="block text-sm font-semibold text-gray-400 mb-1">Choose as</label>
-                        <select
-                            id="choose-as-select"
-                            value={speakingCharacterId}
-                            onChange={(e) => setSpeakingCharacterId(e.target.value)}
-                            className="w-full p-2 bg-accent rounded-md focus:ring-2 focus:ring-highlight outline-none"
-                        >
-                            {gameData.characters.map((char) => (
-                                <option key={char.id} value={char.id}>
-                                    {char.name}
-                                </option>
-                            ))}
-                        </select>
-                    </div>
                     <div className="flex flex-col space-y-2">
                         {choicesToShow.map((choice, index) => (
-                            <button key={index} onClick={() => handleChoiceSelection(choice.text)} className="w-full p-3 bg-accent rounded-md text-lg text-left hover:bg-highlight">
+                            <button key={index} onClick={() => handleChoiceSelection(choice)} className="w-full p-3 bg-accent rounded-md text-lg text-left hover:bg-highlight">
                                 {choice.text}
                             </button>
                         ))}
@@ -1675,6 +1962,17 @@ const InputController = ({ dispatch, gameData, onEndTurn, isMyTurn, currentPlaye
                                 <button onClick={handleDiceRoll} className="px-4 py-1 bg-purple-600 hover:bg-purple-700 rounded-md">Roll</button>
                             </div>
                         </details>
+                         <details className="flex-1" open={isSubmittingSprite} onToggle={(e) => setIsSubmittingSprite(e.currentTarget.open)}>
+                            <summary className="cursor-pointer text-gray-400 hover:text-white">Suggest New Sprite</summary>
+                            <div className="space-y-2 mt-2 p-2 bg-primary rounded-md">
+                               <input type="text" value={newSpriteName} onChange={e => setNewSpriteName(e.target.value)} placeholder="Sprite Name" className="w-full p-2 text-sm bg-accent rounded-md"/>
+                               <select value={newSpriteAssignee} onChange={e => setNewSpriteAssignee(e.target.value)} className="w-full p-2 text-sm bg-accent rounded-md">
+                                 {activeCharacters.filter(c=>c.id !== 'narrator').map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                               </select>
+                               <input type="file" accept="image/*,.webp" onChange={e => setNewSpriteFile(e.target.files?.[0])} className="text-xs file:mr-2 file:py-1 file:px-2 file:rounded-full file:border-0 file:text-xs file:font-semibold file:bg-highlight file:text-white hover:file:bg-opacity-80"/>
+                               <button onClick={handleSubmitSprite} className="w-full text-sm px-4 py-1 bg-purple-600 hover:bg-purple-700 rounded-md">Submit for Approval</button>
+                            </div>
+                        </details>
                     </div>
                     
                     <div className="mb-4">
@@ -1685,7 +1983,7 @@ const InputController = ({ dispatch, gameData, onEndTurn, isMyTurn, currentPlaye
                             onChange={(e) => setSpeakingCharacterId(e.target.value)}
                             className="w-full p-2 bg-accent rounded-md focus:ring-2 focus:ring-highlight outline-none"
                         >
-                            {gameData.characters.map((char) => (
+                            {activeCharacters.map((char) => (
                                 <option key={char.id} value={char.id}>
                                     {char.name}
                                 </option>
@@ -1699,7 +1997,8 @@ const InputController = ({ dispatch, gameData, onEndTurn, isMyTurn, currentPlaye
                         <p className="text-sm text-gray-400">Optionally, add choices for the next player:</p>
                         {choices.map((choice, index) => (
                             <div key={index} className="flex items-center space-x-2 mt-1">
-                                <input type="text" value={choice.text} onChange={e => handleChoiceChange(index, e.target.value)} placeholder={`Choice ${index + 1}`} className="w-full p-2 bg-accent rounded-md"/>
+                                <input type="text" value={choice.text} onChange={e => handleChoiceChange(index, {...choice, text: e.target.value})} placeholder={`Choice ${index + 1}`} className="w-full p-2 bg-accent rounded-md"/>
+                                <button onClick={() => setEditingChoiceIndex(index)} className="p-2 bg-accent rounded-md hover:bg-opacity-75" title="Set Choice Effects">✨</button>
                                 <button onClick={() => handleRemoveChoice(index)} className="text-red-500 hover:text-red-400 p-2 rounded-full font-bold">X</button>
                             </div>
                         ))}
@@ -1712,13 +2011,13 @@ const InputController = ({ dispatch, gameData, onEndTurn, isMyTurn, currentPlaye
     )
 }
 
-const GameView = ({ gameData, dispatch, players, currentPlayer, currentPlayerIndex, onEndTurn, gameMode, myPlayerId }) => {
+const GameView = ({ gameData, dispatch, currentPlayer, currentPlayerIndex, onEndTurn, gameMode, myPlayerId }) => {
     const [baseScene, setBaseScene] = React.useState({ backgroundUrl: null, cgUrl: null, sprites: {}, dialogue: null });
     const [stagedScene, setStagedScene] = React.useState({});
     const [activeSideTab, setActiveSideTab] = React.useState('history');
     
     const isOnlineGame = gameMode === 'online-player' || gameMode === 'online-gm';
-    const isMyTurn = (gameMode === 'local' && players.length > 0) || (isOnlineGame && !!myPlayerId && currentPlayer?.id === myPlayerId);
+    const isMyTurn = (gameMode === 'local' && gameData.players.length > 0) || (isOnlineGame && !!myPlayerId && currentPlayer?.id === myPlayerId);
     const isSpectatingGm = gameMode === 'online-gm' && !myPlayerId;
     
     const [playbackState, setPlaybackState] = React.useState('idle');
@@ -1758,7 +2057,7 @@ const GameView = ({ gameData, dispatch, players, currentPlayer, currentPlayerInd
         turnStarted.current = true;
         
         const playerForLog = (gameMode === 'online-player') 
-            ? players.find(p => p.id === myPlayerId) || { lastSeenLogIndex: 0 }
+            ? gameData.players.find(p => p.id === myPlayerId) || { lastSeenLogIndex: 0 }
             : currentPlayer;
         
         const lastSeenIndex = playerForLog?.lastSeenLogIndex || 0;
@@ -1778,7 +2077,7 @@ const GameView = ({ gameData, dispatch, players, currentPlayer, currentPlayerInd
             setPlaybackState('idle');
             setLogsToPlay([]);
         }
-    }, [gameData.storyLog, currentPlayer, reduceScene, gameMode, myPlayerId, players]);
+    }, [gameData.storyLog, currentPlayer, reduceScene, gameMode, myPlayerId, gameData.players]);
     
     React.useEffect(() => {
         if (playbackState !== 'playing') return;
@@ -1800,9 +2099,14 @@ const GameView = ({ gameData, dispatch, players, currentPlayer, currentPlayerInd
         for (let i = playbackLogIndex; i < logsToPlay.length; i++) {
             const log = logsToPlay[i];
             
-            if (log.type === 'dialogue' || log.type === 'choice_selection') {
+            if (log.type === 'dialogue') {
                 const char = gameData.characters.find(c => c.id === log.characterId);
                 dialogueToShow = { characterName: char?.name || 'Unknown', text: log.text };
+                break;
+            } else if (log.type === 'choice_selection') {
+                const char = gameData.characters.find(c => c.id === log.characterId);
+                const player = gameData.players.find(p => p.id === log.playerId);
+                dialogueToShow = { characterName: player?.name || 'A player', text: `Chose: "${log.choice.text}"` };
                 break;
             } else if (log.type === 'choice') {
                 break;
@@ -1811,7 +2115,7 @@ const GameView = ({ gameData, dispatch, players, currentPlayer, currentPlayerInd
         }
         setBaseScene({ ...sceneUpdate, dialogue: dialogueToShow });
 
-    }, [playbackState, playbackLogIndex, logsToPlay, gameData.characters, reduceScene, baseScene]);
+    }, [playbackState, playbackLogIndex, logsToPlay, gameData.characters, gameData.players, reduceScene, baseScene]);
 
     const handlePlaybackAdvance = () => {
         if (playbackState !== 'playing' || playbackLogIndex >= logsToPlay.length) return;
@@ -1827,18 +2131,18 @@ const GameView = ({ gameData, dispatch, players, currentPlayer, currentPlayerInd
         setPlaybackLogIndex(nextIndex + 1);
     };
 
-    const canSendMessage = !isSpectatingGm && (players.length > 0 || gameMode === 'online-player');
+    const canSendMessage = !isSpectatingGm && (gameData.players.length > 0 || gameMode === 'online-player');
 
     const getSender = React.useCallback(() => {
         if (gameMode === 'local') {
             return { id: currentPlayer?.id, name: currentPlayer?.name };
         }
         if (myPlayerId) {
-            const me = players.find(p => p.id === myPlayerId);
+            const me = gameData.players.find(p => p.id === myPlayerId);
             return { id: me?.id, name: me?.name };
         }
         return { id: null, name: null };
-    }, [gameMode, currentPlayer, myPlayerId, players]);
+    }, [gameMode, currentPlayer, myPlayerId, gameData.players]);
 
     const handleSendChatMessage = React.useCallback((messageText) => {
         const sender = getSender();
@@ -1902,7 +2206,7 @@ const GameView = ({ gameData, dispatch, players, currentPlayer, currentPlayerInd
 };
 
 // --- FROM components/GMMenu.tsx ---
-const GMMenu = ({ isOpen, onClose, gameData, dispatch, players, setPlayers, gameId }) => {
+const GMMenu = ({ isOpen, onClose, gameData, dispatch, gameId, onPreviewAsset }) => {
     const [activeTab, setActiveTab] = React.useState('game');
     const [assetUrl, setAssetUrl] = React.useState('');
     const [assetName, setAssetName] = React.useState('');
@@ -1917,6 +2221,7 @@ const GMMenu = ({ isOpen, onClose, gameData, dispatch, players, setPlayers, game
     const [newQuestDesc, setNewQuestDesc] = React.useState('');
     const [newQuestAssignee, setNewQuestAssignee] = React.useState('null');
     const [newQuestCoins, setNewQuestCoins] = React.useState(0);
+    const { players } = gameData;
     
     const VIDEO_QUALITY_BITRATES = {
         low: 1_000_000, 
@@ -2013,14 +2318,16 @@ const GMMenu = ({ isOpen, onClose, gameData, dispatch, players, setPlayers, game
         }
     }
     
-    const handlePlayerNameChange = (id, name) => {
-        setPlayers(players.map(p => p.id === id ? {...p, name} : p));
-    }
-    const addPlayer = () => {
-        if (players.length < MAX_PLAYERS) {
-            const newPlayer = { id: `p-${Date.now()}`, name: `Player ${players.length + 1}`, lastSeenLogIndex: 0 };
-            setPlayers([...players, newPlayer]);
+    const handlePlayerUpdate = (id, key, value) => {
+        const player = players.find(p => p.id === id);
+        if (player) {
+            dispatch({ type: 'UPDATE_PLAYER', payload: {...player, [key]: value} });
         }
+    }
+
+    const addPlayer = () => {
+        const newPlayer = { id: `p-${Date.now()}`, name: `Player ${players.length + 1}`, lastSeenLogIndex: 0 };
+        dispatch({ type: 'ADD_PLAYER', payload: newPlayer });
     }
     const removePlayer = (id) => {
         const playerToRemove = players.find(p => p.id === id);
@@ -2036,7 +2343,7 @@ const GMMenu = ({ isOpen, onClose, gameData, dispatch, players, setPlayers, game
                     }
                 });
             }
-            setPlayers(players.filter(p => p.id !== id));
+            dispatch({ type: 'REMOVE_PLAYER', payload: { id } });
         }
     }
 
@@ -2217,8 +2524,8 @@ const GMMenu = ({ isOpen, onClose, gameData, dispatch, players, setPlayers, game
                         dialogueToShow = { characterName: char?.name || 'Narrator', text: log.text };
                         dialogueText = log.text;
                     } else if (log.type === 'choice_selection') {
-                        const char = gameData.characters.find(c => c.id === log.characterId);
-                        const fullText = `${char?.name || 'A player'} chose: "${log.text}"`;
+                        const player = gameData.players.find(p => p.id === log.playerId);
+                        const fullText = `${player?.name || 'A player'} chose: "${log.choice.text}"`;
                         dialogueToShow = { characterName: 'Narrator', text: fullText };
                         dialogueText = fullText;
                     }
@@ -2252,6 +2559,8 @@ const GMMenu = ({ isOpen, onClose, gameData, dispatch, players, setPlayers, game
 
     if (!isOpen) return null;
 
+    const approvals = gameData.pendingAssetApprovals || [];
+
     return (
         <div className="fixed inset-0 bg-primary bg-opacity-90 z-50 flex items-center justify-center p-4">
             <div className="bg-secondary rounded-lg shadow-2xl w-full max-w-4xl h-[90vh] flex flex-col relative border-2 border-accent">
@@ -2263,6 +2572,10 @@ const GMMenu = ({ isOpen, onClose, gameData, dispatch, players, setPlayers, game
                     <button onClick={() => setActiveTab('characters')} className={`px-4 py-2 ${activeTab === 'characters' ? 'text-highlight border-b-2 border-highlight' : 'text-light'}`}>Characters</button>
                     <button onClick={() => setActiveTab('assets')} className={`px-4 py-2 ${activeTab === 'assets' ? 'text-highlight border-b-2 border-highlight' : 'text-light'}`}>Assets</button>
                     <button onClick={() => setActiveTab('players')} className={`px-4 py-2 ${activeTab === 'players' ? 'text-highlight border-b-2 border-highlight' : 'text-light'}`}>Players</button>
+                     <button onClick={() => setActiveTab('approvals')} className={`px-4 py-2 relative ${activeTab === 'approvals' ? 'text-highlight border-b-2 border-highlight' : 'text-light'}`}>
+                        Approvals
+                        {approvals.length > 0 && <span className="absolute top-1 right-1 bg-red-600 text-white text-xs font-bold rounded-full h-4 w-4 flex items-center justify-center">{approvals.length}</span>}
+                    </button>
                     <button onClick={() => setActiveTab('export')} className={`px-4 py-2 ${activeTab === 'export' ? 'text-highlight border-b-2 border-highlight' : 'text-light'}`}>Export</button>
                 </div>
 
@@ -2314,32 +2627,6 @@ const GMMenu = ({ isOpen, onClose, gameData, dispatch, players, setPlayers, game
                                             <button onClick={() => handleUpdateQuestStatus(quest.id, 'completed')} className="px-2 py-1 text-xs bg-green-600 hover:bg-green-700 rounded">Complete</button>
                                         </div>
                                     ))}
-                                </div>
-                            </div>
-
-                            <div>
-                                <h3 className="text-xl font-semibold text-highlight mb-2">Characters Stats</h3>
-                                {gameData.characters.filter(c => c.id !== 'narrator').map(char => (
-                                    <details key={char.id} className="bg-accent p-3 rounded-lg mb-2">
-                                        <summary className="font-bold cursor-pointer">{char.name}</summary>
-                                        <div className="grid grid-cols-2 gap-2 mt-2">
-                                            <div>
-                                                <label className="text-xs">Health</label>
-                                                <input type="number" value={char.health} onChange={e => updateCharacter({...char, health: Math.min(parseInt(e.target.value) || 0, char.maxHealth)})} className="w-full p-1 bg-primary rounded-md"/>
-                                            </div>
-                                             <div>
-                                                <label className="text-xs">Mana</label>
-                                                <input type="number" value={char.mana} onChange={e => updateCharacter({...char, mana: Math.min(parseInt(e.target.value) || 0, char.maxMana)})} className="w-full p-1 bg-primary rounded-md"/>
-                                            </div>
-                                        </div>
-                                    </details>
-                                ))}
-                            </div>
-                            
-                            <div>
-                                <h3 className="text-xl font-semibold text-highlight mb-2">Party Coins</h3>
-                                 <div className="flex items-center gap-2 bg-accent p-2 rounded-lg">
-                                    <input type="number" value={gameData.coins} onChange={e => dispatch({type: 'SET_COINS', payload: parseInt(e.target.value) || 0})} className="w-full p-2 bg-primary rounded-md"/>
                                 </div>
                             </div>
                         </div>
@@ -2411,12 +2698,13 @@ const GMMenu = ({ isOpen, onClose, gameData, dispatch, players, setPlayers, game
                                 <PremadeAssetBrowser 
                                     onAddAsset={(asset) => dispatch({ type: 'ADD_ASSET', payload: {...asset, isPublished: true} })}
                                     onAddAssetCollection={handleAddAssetCollection}
+                                    onPreviewAsset={onPreviewAsset}
                                 />
                             </div>
                             <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-4">
                                 {gameData.assets.map(asset => (
                                     <div key={asset.id} className="bg-accent p-2 rounded-lg relative">
-                                        <img src={asset.url} alt={asset.name} className="w-full h-32 object-cover rounded-md mb-2" />
+                                        <img src={asset.url} alt={asset.name} className="w-full h-32 object-cover rounded-md mb-2 cursor-pointer" onClick={() => onPreviewAsset(asset)} />
                                         <p className="text-sm truncate" title={asset.name}>{asset.name}</p>
                                         <p className="text-xs text-gray-400 capitalize">{asset.type.replace('Sprite', ' Sprite')}</p>
                                     </div>
@@ -2444,12 +2732,48 @@ const GMMenu = ({ isOpen, onClose, gameData, dispatch, players, setPlayers, game
                             <div className="space-y-2">
                             {players.map(player => (
                                 <div key={player.id} className="flex items-center space-x-2 bg-accent p-2 rounded">
-                                    <input type="text" value={player.name} onChange={e => handlePlayerNameChange(player.id, e.target.value)} className="p-2 bg-primary rounded-md flex-grow" placeholder="Player Name"/>
+                                    <input type="text" value={player.name} onChange={e => handlePlayerUpdate(player.id, 'name', e.target.value)} className="p-2 bg-primary rounded-md flex-grow" placeholder="Player Name"/>
+                                    <input type="number" value={player.coins || 0} onChange={e => handlePlayerUpdate(player.id, 'coins', parseInt(e.target.value) || 0)} className="w-24 p-2 bg-primary rounded-md" placeholder="Coins"/>
                                     <button onClick={() => removePlayer(player.id)} className="text-red-500 hover:text-red-400 p-2 rounded-full font-bold">X</button>
                                 </div>
                             ))}
                             </div>
                             <button onClick={addPlayer} disabled={players.length >= MAX_PLAYERS} className="mt-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 rounded-md disabled:bg-gray-500">Add Player</button>
+                        </div>
+                    )}
+                    {activeTab === 'approvals' && (
+                        <div>
+                            <h3 className="text-lg font-semibold text-highlight mb-2">Pending Asset Approvals ({approvals.length})</h3>
+                             {approvals.length === 0 ? (
+                                <p className="text-gray-400 italic">No assets waiting for approval.</p>
+                             ) : (
+                                <div className="space-y-3">
+                                {approvals.map(approval => {
+                                    const asset = gameData.assets.find(a => a.id === approval.assetId);
+                                    const player = gameData.players.find(p => p.id === approval.submittingPlayerId);
+                                    const character = gameData.characters.find(c => c.id === approval.characterIdToAssign);
+                                    if (!asset) return null;
+                                    return (
+                                        <div key={asset.id} className="bg-accent p-3 rounded-lg flex items-center gap-4">
+                                            <img src={asset.url} alt={asset.name} className="w-16 h-16 object-cover rounded-md cursor-pointer" onClick={() => onPreviewAsset(asset)} />
+                                            <div className="flex-1">
+                                                <p className="font-bold">{asset.name}</p>
+                                                <p className="text-xs text-gray-300">
+                                                    Submitted by: <span className="font-semibold">{player?.name || 'Unknown'}</span>
+                                                </p>
+                                                 <p className="text-xs text-gray-300">
+                                                    For Character: <span className="font-semibold">{character?.name || 'Unknown'}</span>
+                                                </p>
+                                            </div>
+                                            <div className="flex flex-col gap-2">
+                                                <button onClick={() => dispatch({type: 'APPROVE_ASSET', payload: approval})} className="px-3 py-1 bg-green-600 hover:bg-green-700 rounded-md text-sm">Approve</button>
+                                                <button onClick={() => dispatch({type: 'REJECT_ASSET', payload: approval})} className="px-3 py-1 bg-red-600 hover:bg-red-700 rounded-md text-sm">Reject</button>
+                                            </div>
+                                        </div>
+                                    )
+                                })}
+                                </div>
+                             )}
                         </div>
                     )}
                     {activeTab === 'export' && (
@@ -2529,7 +2853,6 @@ const GMMenu = ({ isOpen, onClose, gameData, dispatch, players, setPlayers, game
 // --- FROM App.tsx ---
 const App = () => {
   const [gameData, dispatch] = React.useReducer(gameReducer, INITIAL_GAME_DATA);
-  const [players, setPlayers] = React.useState([{ id: `p-1`, name: 'Player 1', lastSeenLogIndex: 0 }]);
   const [gamePhase, setGamePhase] = React.useState('setup');
   const [currentPlayerIndex, setCurrentPlayerIndex] = React.useState(0);
   const [isGmMenuOpen, setIsGmMenuOpen] = React.useState(false);
@@ -2545,6 +2868,8 @@ const App = () => {
   const [isGmRulesModalOpen, setIsGmRulesModalOpen] = React.useState(false);
   const [isTutorialModalOpen, setIsTutorialModalOpen] = React.useState(false);
   const [hasSeenRules, setHasSeenRules] = React.useState(false);
+  const [previewAsset, setPreviewAsset] = React.useState(null);
+  const { players } = gameData;
 
   React.useEffect(() => {
     signInAnonymouslyIfNeeded()
@@ -2559,10 +2884,8 @@ const App = () => {
 
     network.onMessage((message) => {
       if (message.type === 'PLAYER_JOIN_REQUEST') {
-        if (players.length < MAX_PLAYERS && !players.find(p => p.id === message.payload.id)) {
           const newPlayer = { id: message.payload.id, name: message.payload.name, lastSeenLogIndex: 0 };
-          setPlayers(p => [...p, newPlayer]);
-
+          dispatch({ type: 'ADD_PLAYER', payload: newPlayer });
           if (gamePhase === 'play') {
             dispatch({
                 type: 'ADD_LOG_ENTRY',
@@ -2572,7 +2895,6 @@ const App = () => {
                 }
             });
           }
-        }
       } else if (message.type === 'LOBBY_CHAT_MESSAGE') {
         dispatch({ type: 'ADD_LOBBY_CHAT_MESSAGE', payload: message.payload.message });
       } else if (message.type === 'DISPATCH_ACTION') {
@@ -2583,7 +2905,7 @@ const App = () => {
     });
     
     network.onPresenceChange(gameId, (leavingPlayerId, leavingPlayerName) => {
-        const playerExists = players.some(p => p.id === leavingPlayerId);
+        const playerExists = gameData.players.some(p => p.id === leavingPlayerId);
         if (!playerExists) return;
 
         dispatch({
@@ -2594,30 +2916,30 @@ const App = () => {
             }
         });
 
-        const leavingPlayerIndex = players.findIndex(p => p.id === leavingPlayerId);
-        const newPlayers = players.filter(p => p.id !== leavingPlayerId);
-        setPlayers(newPlayers);
-
-        if (newPlayers.length > 0) {
+        const leavingPlayerIndex = gameData.players.findIndex(p => p.id === leavingPlayerId);
+        dispatch({ type: 'REMOVE_PLAYER', payload: { id: leavingPlayerId } });
+        const newPlayerCount = gameData.players.length -1;
+        
+        if (newPlayerCount > 0) {
             if (leavingPlayerIndex < currentPlayerIndex) {
                 setCurrentPlayerIndex(prev => prev - 1);
             } else {
-                setCurrentPlayerIndex(prev => prev % newPlayers.length);
+                setCurrentPlayerIndex(prev => prev % newPlayerCount);
             }
         } else {
             setCurrentPlayerIndex(0);
         }
     });
 
-  }, [gameMode, gameId, players, currentPlayerIndex, gamePhase]);
+  }, [gameMode, gameId, gameData.players, currentPlayerIndex, gamePhase]);
 
   React.useEffect(() => {
     if (gameMode !== 'online-gm') return;
     network.sendMessage({ 
       type: 'GAME_STATE_SYNC', 
-      payload: { gameData, players, currentPlayerIndex, gamePhase } 
+      payload: { gameData, currentPlayerIndex, gamePhase } 
     });
-  }, [gameMode, gameData, players, currentPlayerIndex, gamePhase]);
+  }, [gameMode, gameData, currentPlayerIndex, gamePhase]);
 
   React.useEffect(() => {
     if (gameMode !== 'online-player') return;
@@ -2631,9 +2953,8 @@ const App = () => {
 
         setConnectionStatus('connected');
         
-        const { gameData, players, currentPlayerIndex, gamePhase } = message.payload;
+        const { gameData, currentPlayerIndex, gamePhase } = message.payload;
         dispatch({ type: 'SET_GAME_DATA', payload: gameData });
-        setPlayers(players || []);
         setCurrentPlayerIndex(currentPlayerIndex || 0);
         setGamePhase(gamePhase);
       }
@@ -2720,10 +3041,10 @@ const App = () => {
         const hostPlayerId = sessionId;
         setMyPlayerId(hostPlayerId);
         const hostPlayer = { id: hostPlayerId, name: playerName.trim(), lastSeenLogIndex: 0 };
-        setPlayers([hostPlayer]);
+        dispatch({type: 'SET_PLAYERS', payload: [hostPlayer]});
         network.setupPresence(newGameId, hostPlayerId, playerName.trim());
     } else {
-        setPlayers([]);
+        dispatch({type: 'SET_PLAYERS', payload: []});
         setMyPlayerId(null);
     }
 
@@ -2752,10 +3073,6 @@ const App = () => {
   };
 
   const startGame = async () => {
-    if (players.length < 1 && gameMode !== 'online-gm') {
-      alert('You need at least one player to start.');
-      return;
-    }
     if (players.some(p => !p.name.trim())) {
       alert('All players must have a name before starting.');
       return;
@@ -2796,10 +3113,10 @@ const App = () => {
       return;
     }
     
-    const newPlayers = [...players];
-    if (newPlayers[currentPlayerIndex]) {
-        newPlayers[currentPlayerIndex].lastSeenLogIndex = gameData.storyLog.length;
-        setPlayers(newPlayers);
+    const currentPlayer = players[currentPlayerIndex];
+    if (currentPlayer) {
+        const updatedPlayer = {...currentPlayer, lastSeenLogIndex: gameData.storyLog.length};
+        dispatch({type: 'UPDATE_PLAYER', payload: updatedPlayer});
     }
     
     setCurrentPlayerIndex(prev => (prev + 1) % (players.length || 1));
@@ -2819,14 +3136,14 @@ const App = () => {
           dispatch({ type: 'ADD_LOG_ENTRY', payload: { type: 'stat_change', text: `(${playerToRemove.name}) Has Left the Game!` } });
           
           const leavingPlayerIndex = players.findIndex(p => p.id === myPlayerId);
-          const newPlayers = players.filter(p => p.id !== myPlayerId);
-          setPlayers(newPlayers);
+          dispatch({ type: 'REMOVE_PLAYER', payload: { id: myPlayerId } });
+          const newPlayerCount = players.length - 1;
 
-          if (newPlayers.length > 0) {
+          if (newPlayerCount > 0) {
               if (leavingPlayerIndex < currentPlayerIndex) {
                   setCurrentPlayerIndex(prev => prev - 1);
               } else {
-                  setCurrentPlayerIndex(prev => prev % newPlayers.length);
+                  setCurrentPlayerIndex(prev => prev % newPlayerCount);
               }
           } else {
               setCurrentPlayerIndex(0);
@@ -2849,10 +3166,9 @@ const App = () => {
               }
           });
           
-          const newPlayers = players.filter(p => p.id !== playerToRemove.id);
-          setPlayers(newPlayers);
-
-          setCurrentPlayerIndex(currentPlayerIndex % (newPlayers.length || 1));
+          dispatch({ type: 'REMOVE_PLAYER', payload: { id: playerToRemove.id } });
+          const newPlayerCount = players.length - 1;
+          setCurrentPlayerIndex(currentPlayerIndex % (newPlayerCount || 1));
       }
   };
 
@@ -2917,14 +3233,13 @@ const App = () => {
           <SetupView
             gameData={gameData}
             dispatch={dispatch}
-            players={players}
-            setPlayers={setPlayers}
             onStartLocalGame={startLocalGame}
             onHostOnlineGame={hostOnlineGame}
             onJoinOnlineGame={joinOnlineGameAsPlayer}
             gameId={gameId}
             onStartGameForEveryone={startGame}
             onSendLobbyMessage={handleSendLobbyChatMessage}
+            onPreviewAsset={setPreviewAsset}
           />
         );
       case 'play':
@@ -2942,7 +3257,6 @@ const App = () => {
           <GameView 
             gameData={gameData}
             dispatch={onlineDispatch}
-            players={players}
             currentPlayer={players[currentPlayerIndex]}
             currentPlayerIndex={currentPlayerIndex}
             onEndTurn={handleEndTurn}
@@ -2969,6 +3283,7 @@ const App = () => {
   return (
       <div className="min-h-screen bg-primary text-light font-sans p-4 relative">
           <audio ref={audioRef} />
+          {previewAsset && <ImagePreviewModal asset={previewAsset} onClose={() => setPreviewAsset(null)} />}
           {isLoading && (
             <div className="fixed inset-0 bg-primary bg-opacity-90 flex items-center justify-center z-50">
                 <div className="text-center">
@@ -2997,8 +3312,9 @@ const App = () => {
                     </button>
                   )}
                   {(gameMode === 'local' || gameMode === 'online-gm') && gamePhase === 'play' && (
-                    <button onClick={() => setIsGmMenuOpen(true)} className="px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-md transition-colors">
+                    <button onClick={() => setIsGmMenuOpen(true)} className="px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-md transition-colors relative">
                       GM Actions
+                      {gameData.pendingAssetApprovals.length > 0 && <span className="absolute -top-1 -right-1 bg-red-600 text-white text-xs font-bold rounded-full h-5 w-5 flex items-center justify-center animate-pulse">{gameData.pendingAssetApprovals.length}</span>}
                     </button>
                   )}
                 </div>
@@ -3014,9 +3330,8 @@ const App = () => {
                     onClose={() => setIsGmMenuOpen(false)}
                     gameData={gameData}
                     dispatch={dispatch}
-                    players={players}
-                    setPlayers={setPlayers}
                     gameId={gameId}
+                    onPreviewAsset={setPreviewAsset}
                 />
               )}
           </div>

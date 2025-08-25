@@ -6,6 +6,7 @@ export interface Player {
   id: PlayerId;
   name: string;
   lastSeenLogIndex: number;
+  isWaitingForApproval?: boolean;
 }
 
 export type AssetType = 'background' | 'characterSprite' | 'cg';
@@ -16,6 +17,7 @@ export interface Asset {
   url: string; // data URL or path
   name: string;
   isPublished?: boolean;
+  ownerId?: PlayerId;
 }
 
 export type QuestStatus = 'active' | 'completed';
@@ -48,16 +50,26 @@ export interface DialogueLogEntry {
   text: string;
 }
 
+export interface Choice {
+  text: string;
+  effects?: {
+    coins?: number;
+    hp?: number;
+    mp?: number;
+    targetCharacterId?: string;
+  };
+}
+
 export interface ChoiceLogEntry {
   type: 'choice';
-  choices: { text: string }[];
+  choices: Choice[];
 }
 
 export interface ChoiceSelectionLogEntry {
   type: 'choice_selection';
   playerId: PlayerId;
   characterId: string;
-  text: string;
+  choice: Choice;
 }
 
 export interface BackgroundChangeLogEntry {
@@ -121,6 +133,12 @@ export interface GameData {
   chatLog: ChatMessage[];
   lobbyChatLog: ChatMessage[];
   lobbyMusicUrl: string | null;
+  players: Player[];
+  pendingAssetApprovals: {
+      assetId: string;
+      characterIdToAssign: string;
+      submittingPlayerId: PlayerId;
+  }[];
 }
 
 export type GameMode = 'local' | 'online-gm' | 'online-player';

@@ -10,9 +10,8 @@ interface GMMenuProps {
   onClose: () => void;
   gameData: GameData;
   dispatch: React.Dispatch<Action>;
-  players: Player[];
-  setPlayers: React.Dispatch<React.SetStateAction<Player[]>>;
   gameId: string | null;
+  onPreviewAsset: (asset: Asset) => void;
 }
 
 // --- Types for Scene State for video export ---
@@ -125,7 +124,7 @@ async function drawSceneOnCanvas(
 }
 
 
-const GMMenu: React.FC<GMMenuProps> = ({ isOpen, onClose, gameData, dispatch, players, setPlayers, gameId }) => {
+const GMMenu: React.FC<GMMenuProps> = ({ isOpen, onClose, gameData, dispatch, gameId, onPreviewAsset }) => {
     const [activeTab, setActiveTab] = useState('game');
     const [assetUrl, setAssetUrl] = useState('');
     const [assetName, setAssetName] = useState('');
@@ -136,6 +135,7 @@ const GMMenu: React.FC<GMMenuProps> = ({ isOpen, onClose, gameData, dispatch, pl
     const [timingBaseSeconds, setTimingBaseSeconds] = useState(2.5);
     const [timingSecondsPerWord, setTimingSecondsPerWord] = useState(0.25);
     const [videoQuality, setVideoQuality] = useState('high');
+    const { players } = gameData;
 
     // Quest Form State
     const [newQuestTitle, setNewQuestTitle] = useState('');
@@ -145,12 +145,15 @@ const GMMenu: React.FC<GMMenuProps> = ({ isOpen, onClose, gameData, dispatch, pl
     
     // Player Management
     const handlePlayerNameChange = (id: string, name: string) => {
-        setPlayers(players.map(p => p.id === id ? {...p, name} : p));
+        const player = players.find(p => p.id === id);
+        if (player) {
+            dispatch({ type: 'UPDATE_PLAYER', payload: {...player, name} });
+        }
     }
     const addPlayer = () => {
         if (players.length < MAX_PLAYERS) {
             const newPlayer: Player = { id: `p-${Date.now()}`, name: `Player ${players.length + 1}`, lastSeenLogIndex: 0 };
-            setPlayers([...players, newPlayer]);
+            dispatch({ type: 'ADD_PLAYER', payload: newPlayer });
         }
     }
     const removePlayer = (id: string) => {
@@ -167,7 +170,7 @@ const GMMenu: React.FC<GMMenuProps> = ({ isOpen, onClose, gameData, dispatch, pl
                     }
                 });
             }
-            setPlayers(players.filter(p => p.id !== id));
+            dispatch({ type: 'REMOVE_PLAYER', payload: { id } });
         }
     }
 
@@ -355,7 +358,7 @@ const GMMenu: React.FC<GMMenuProps> = ({ isOpen, onClose, gameData, dispatch, pl
                         dialogueText = log.text;
                     } else if (log.type === 'choice_selection') {
                         const char = gameData.characters.find(c => c.id === log.characterId);
-                        const fullText = `${char?.name || 'A player'} chose: "${log.text}"`;
+                        const fullText = `${char?.name || 'A player'} chose: "${log.choice.text}"`;
                         dialogueToShow = { characterName: 'Narrator', text: fullText };
                         dialogueText = fullText;
                     }
@@ -552,6 +555,7 @@ const GMMenu: React.FC<GMMenuProps> = ({ isOpen, onClose, gameData, dispatch, pl
                                 <PremadeAssetBrowser 
                                     onAddAsset={(asset) => dispatch({ type: 'ADD_ASSET', payload: {...asset, isPublished: true} })}
                                     onAddAssetCollection={handleAddAssetCollection}
+                                    onPreviewAsset={onPreviewAsset}
                                 />
                             </div>
                             <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-4">

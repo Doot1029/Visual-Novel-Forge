@@ -9,17 +9,16 @@ import LobbyChat from './LobbyChat';
 interface SetupViewProps {
   gameData: GameData;
   dispatch: React.Dispatch<Action>;
-  players: Player[];
-  setPlayers: React.Dispatch<React.SetStateAction<Player[]>>;
   onStartLocalGame: () => void;
   onHostOnlineGame: (options: { asPlayer: boolean, playerName: string }) => void;
   onJoinOnlineGame: (gameId: string, playerName: string) => void;
   gameId: string | null;
   onStartGameForEveryone: () => void;
   onSendLobbyMessage: (message: string) => void;
+  onPreviewAsset: (asset: Asset) => void;
 }
 
-const GameSetup: React.FC<Omit<SetupViewProps, 'onHostOnlineGame' | 'onJoinOnlineGame' | 'gameId' | 'onStartGameForEveryone' | 'onStartLocalGame' | 'onSendLobbyMessage'> & { onStartGame: (options?: { asPlayer: boolean, playerName: string }) => void, isOnline: boolean }> = ({ gameData, dispatch, players, setPlayers, onStartGame, isOnline }) => {
+const GameSetup: React.FC<Omit<SetupViewProps, 'onHostOnlineGame' | 'onJoinOnlineGame' | 'gameId' | 'onStartGameForEveryone' | 'onStartLocalGame' | 'onSendLobbyMessage'> & { onStartGame: (options?: { asPlayer: boolean, playerName: string }) => void, isOnline: boolean }> = ({ gameData, dispatch, onStartGame, isOnline, onPreviewAsset }) => {
     const [activeTab, setActiveTab] = useState('game');
     const [assetUrl, setAssetUrl] = useState('');
     const [assetName, setAssetName] = useState('');
@@ -27,20 +26,22 @@ const GameSetup: React.FC<Omit<SetupViewProps, 'onHostOnlineGame' | 'onJoinOnlin
     const [hostAsPlayer, setHostAsPlayer] = useState(true);
     const [hostPlayerName, setHostPlayerName] = useState('Player 1');
     const [error, setError] = useState<string | null>(null);
+    const { players } = gameData;
     
 
     const handlePlayerNameChange = (id: string, name: string) => {
-        setPlayers(players.map(p => p.id === id ? {...p, name} : p));
+        const player = players.find(p => p.id === id);
+        if (player) {
+            dispatch({ type: 'UPDATE_PLAYER', payload: {...player, name} });
+        }
     }
 
     const addPlayer = () => {
-        if (players.length < MAX_PLAYERS) {
-            const newPlayer: Player = { id: `p-${Date.now()}`, name: `Player ${players.length + 1}`, lastSeenLogIndex: 0 };
-            setPlayers([...players, newPlayer]);
-        }
+        const newPlayer: Player = { id: `p-${Date.now()}`, name: `Player ${players.length + 1}`, lastSeenLogIndex: 0 };
+        dispatch({ type: 'ADD_PLAYER', payload: newPlayer });
     }
     const removePlayer = (id: string) => {
-        setPlayers(players.filter(p => p.id !== id));
+        dispatch({ type: 'REMOVE_PLAYER', payload: { id } });
     }
 
     const addNewCharacter = () => {
@@ -102,6 +103,14 @@ const GameSetup: React.FC<Omit<SetupViewProps, 'onHostOnlineGame' | 'onJoinOnlin
             setError(null);
             onStartGame({ asPlayer: hostAsPlayer, playerName: hostPlayerName });
         } else {
+             if (players.length < 1) {
+                setError('You need at least one player for a local game.');
+                return;
+            }
+            if (players.some(p => !p.name.trim())) {
+                setError('All players must have a name before starting.');
+                return;
+            }
             setError(null);
             onStartGame();
         }
@@ -298,13 +307,14 @@ const GameSetup: React.FC<Omit<SetupViewProps, 'onHostOnlineGame' | 'onJoinOnlin
                         <PremadeAssetBrowser 
                            onAddAsset={(asset) => dispatch({ type: 'ADD_ASSET', payload: asset })}
                            onAddAssetCollection={handleAddAssetCollection}
+                           onPreviewAsset={onPreviewAsset}
                         />
                     </div>
 
                      <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-4">
                         {gameData.assets.map(asset => (
                             <div key={asset.id} className="bg-accent p-2 rounded-lg relative">
-                                <img src={asset.url} alt={asset.name} className="w-full h-32 object-cover rounded-md mb-2" />
+                                <img src={asset.url} alt={asset.name} className="w-full h-32 object-cover rounded-md mb-2 cursor-pointer" onClick={() => onPreviewAsset(asset)} />
                                 <p className="text-sm truncate" title={asset.name}>{asset.name}</p>
                                 <p className="text-xs text-gray-400 capitalize">{asset.type.replace('Sprite', ' Sprite')}</p>
                             </div>
@@ -331,6 +341,7 @@ const SetupView: React.FC<SetupViewProps> = (props) => {
     const [joinGameId, setJoinGameId] = useState('');
     const [joinPlayerName, setJoinPlayerName] = useState('');
     const [joinError, setJoinError] = useState<string | null>(null);
+    const { players } = props.gameData;
 
     const handleJoin = () => {
         if (joinGameId.trim() && joinPlayerName.trim()) {
@@ -358,12 +369,12 @@ const SetupView: React.FC<SetupViewProps> = (props) => {
                         />
                     </div>
                     <div className="mt-6 w-full max-w-sm mx-auto">
-                        <h3 className="text-xl font-semibold mb-2">Players Joined ({props.players.length})</h3>
+                        <h3 className="text-xl font-semibold mb-2">Players Joined ({players.length})</h3>
                         <div className="max-h-48 overflow-y-auto bg-primary p-2 rounded-md space-y-1 text-left">
-                            {props.players.length === 0 ? (
+                            {players.length === 0 ? (
                                 <p className="text-gray-400 italic text-center">Waiting for players...</p>
                             ) : (
-                                props.players.map(p => (
+                                players.map(p => (
                                     <div key={p.id} className="bg-accent p-2 rounded">{p.name}</div>
                                 ))
                             )}
@@ -371,9 +382,9 @@ const SetupView: React.FC<SetupViewProps> = (props) => {
                     </div>
                     <button
                         onClick={props.onStartGameForEveryone}
-                        disabled={props.players.length === 0}
+                        disabled={players.length === 0}
                         className="mt-6 px-8 py-4 bg-highlight text-white text-xl font-bold rounded-lg hover:bg-opacity-80 transition-transform hover:scale-105 disabled:bg-gray-500 disabled:cursor-not-allowed"
-                        title={props.players.length === 0 ? "Waiting for at least one player to join" : "Start the game"}
+                        title={players.length === 0 ? "Waiting for at least one player to join" : "Start the game"}
                     >
                         Start Game for Everyone
                     </button>

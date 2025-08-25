@@ -3,11 +3,12 @@ import { GameData, Player, GamePhase, Character, Asset, GameMode, ChatMessage } 
 import { gameReducer, Action } from './state/reducer';
 import { INITIAL_GAME_DATA } from './constants';
 import SetupView from './components/SetupView';
-import GameView from './components/GameView';
+import { GameView } from './components/GameView';
 import GMMenu from './components/GMMenu';
 import GmRulesModal from './components/GmRulesModal';
 import TutorialModal from './components/TutorialModal';
 import LobbyChat from './components/LobbyChat';
+import ImagePreviewModal from './components/ImagePreviewModal';
 import * as network from './services/networkService';
 import { MAX_PLAYERS } from './constants';
 import { signInAnonymouslyIfNeeded } from './services/firebase';
@@ -15,7 +16,6 @@ import { signInAnonymouslyIfNeeded } from './services/firebase';
 
 const App: React.FC = () => {
   const [gameData, dispatch] = useReducer(gameReducer, INITIAL_GAME_DATA);
-  const [players, setPlayers] = useState<Player[]>([{ id: `p-1`, name: 'Player 1', lastSeenLogIndex: 0 }]);
   const [gamePhase, setGamePhase] = useState<GamePhase>('setup');
   const [currentPlayerIndex, setCurrentPlayerIndex] = useState(0);
   const [isGmMenuOpen, setIsGmMenuOpen] = useState(false);
@@ -30,33 +30,27 @@ const App: React.FC = () => {
   const connectionTimeoutRef = useRef<number | null>(null);
   const audioRef = useRef<HTMLAudioElement>(null);
 
-  // Modals and one-time popups state
   const [isGmRulesModalOpen, setIsGmRulesModalOpen] = useState(false);
   const [isTutorialModalOpen, setIsTutorialModalOpen] = useState(false);
   const [hasSeenRules, setHasSeenRules] = useState(false);
+  const [previewAsset, setPreviewAsset] = useState<Asset | null>(null);
+  const { players } = gameData;
 
-  // --- Firebase Auth ---
   useEffect(() => {
     signInAnonymouslyIfNeeded()
       .then(() => setIsAuthenticating(false))
       .catch(() => {
-        // Error is already alerted in the service. We can just stop loading.
         setIsAuthenticating(false);
       });
   }, []);
   
-  // --- Online Multiplayer Logic ---
-
-  // GM: Listen for messages from players and for presence changes
   useEffect(() => {
     if (gameMode !== 'online-gm' || !gameId) return;
 
     network.onMessage((message) => {
       if (message.type === 'PLAYER_JOIN_REQUEST') {
-        if (players.length < MAX_PLAYERS && !players.find(p => p.id === message.payload.id)) {
           const newPlayer: Player = { id: message.payload.id, name: message.payload.name, lastSeenLogIndex: 0 };
-          setPlayers(p => [...p, newPlayer]);
-
+          dispatch({ type: 'ADD_PLAYER', payload: newPlayer });
           if (gamePhase === 'play') {
             dispatch({
                 type: 'ADD_LOG_ENTRY',
@@ -66,7 +60,6 @@ const App: React.FC = () => {
                 }
             });
           }
-        }
       } else if (message.type === 'LOBBY_CHAT_MESSAGE') {
         dispatch({ type: 'ADD_LOBBY_CHAT_MESSAGE', payload: message.payload.message });
       } else if (message.type === 'DISPATCH_ACTION') {
@@ -77,8 +70,8 @@ const App: React.FC = () => {
     });
     
     network.onPresenceChange(gameId, (leavingPlayerId, leavingPlayerName) => {
-        const playerExists = players.some(p => p.id === leavingPlayerId);
-        if (!playerExists) return; // Already processed
+        const playerExists = gameData.players.some(p => p.id === leavingPlayerId);
+        if (!playerExists) return;
 
         dispatch({
             type: 'ADD_LOG_ENTRY',
@@ -88,40 +81,36 @@ const App: React.FC = () => {
             }
         });
 
-        const leavingPlayerIndex = players.findIndex(p => p.id === leavingPlayerId);
-        const newPlayers = players.filter(p => p.id !== leavingPlayerId);
-        setPlayers(newPlayers);
-
-        // Adjust current player index if needed
-        if (newPlayers.length > 0) {
+        const leavingPlayerIndex = gameData.players.findIndex(p => p.id === leavingPlayerId);
+        dispatch({ type: 'REMOVE_PLAYER', payload: { id: leavingPlayerId } });
+        const newPlayerCount = gameData.players.length -1;
+        
+        if (newPlayerCount > 0) {
             if (leavingPlayerIndex < currentPlayerIndex) {
                 setCurrentPlayerIndex(prev => prev - 1);
             } else {
-                setCurrentPlayerIndex(prev => prev % newPlayers.length);
+                setCurrentPlayerIndex(prev => prev % newPlayerCount);
             }
         } else {
             setCurrentPlayerIndex(0);
         }
     });
 
-  }, [gameMode, gameId, players, currentPlayerIndex, gamePhase]); // Rerun if players list changes to have the latest closure
+  }, [gameMode, gameId, gameData.players, currentPlayerIndex, gamePhase]);
 
-  // GM: Broadcast state changes
   useEffect(() => {
     if (gameMode !== 'online-gm') return;
     network.sendMessage({ 
       type: 'GAME_STATE_SYNC', 
-      payload: { gameData, players, currentPlayerIndex, gamePhase } 
+      payload: { gameData, players: gameData.players, currentPlayerIndex, gamePhase } 
     });
-  }, [gameMode, gameData, players, currentPlayerIndex, gamePhase]);
+  }, [gameMode, gameData, currentPlayerIndex, gamePhase]);
 
-  // Player: Listen for state sync from GM
   useEffect(() => {
     if (gameMode !== 'online-player') return;
 
     const handleMessage = (message: network.NetworkMessage) => {
       if (message.type === 'GAME_STATE_SYNC') {
-        // We got a message from the GM, we are connected.
         if (connectionTimeoutRef.current) {
           clearTimeout(connectionTimeoutRef.current);
           connectionTimeoutRef.current = null;
@@ -129,10 +118,9 @@ const App: React.FC = () => {
 
         setConnectionStatus('connected');
         
-        const { gameData, players, currentPlayerIndex, gamePhase } = message.payload;
+        const { gameData, currentPlayerIndex, gamePhase } = message.payload;
         dispatch({ type: 'SET_GAME_DATA', payload: gameData });
-        setPlayers(players || []); // Guard against undefined players from Firebase
-        setCurrentPlayerIndex(currentPlayerIndex || 0); // Guard as well
+        setCurrentPlayerIndex(currentPlayerIndex || 0);
         setGamePhase(gamePhase);
       }
     };
@@ -141,7 +129,6 @@ const App: React.FC = () => {
 
   }, [gameMode]);
   
-  // Player: Show rules modal on first entry to 'play' phase
   useEffect(() => {
     if (gameMode === 'online-player' && gamePhase === 'play' && !hasSeenRules) {
         setIsGmRulesModalOpen(true);
@@ -149,7 +136,6 @@ const App: React.FC = () => {
     }
   }, [gamePhase, gameMode, hasSeenRules]);
 
-  // Lobby Music Playback
   useEffect(() => {
     const audio = audioRef.current;
     if (!audio) return;
@@ -175,8 +161,6 @@ const App: React.FC = () => {
     }
   }, [gameData.lobbyMusicUrl, gameMode, gamePhase, gameId]);
 
-
-  // --- Game Actions ---
 
   const onlineDispatch = (action: Action) => {
     if (gameMode === 'online-player') {
@@ -219,14 +203,14 @@ const App: React.FC = () => {
     setGameMode('online-gm');
 
     if (asPlayer && playerName.trim()) {
-        const hostPlayerId = sessionId; // Use the unique session ID
+        const hostPlayerId = sessionId;
         setMyPlayerId(hostPlayerId);
         const hostPlayer: Player = { id: hostPlayerId, name: playerName.trim(), lastSeenLogIndex: 0 };
-        setPlayers([hostPlayer]);
+        dispatch({type: 'SET_PLAYERS', payload: [hostPlayer]});
         network.setupPresence(newGameId, hostPlayerId, playerName.trim());
     } else {
-        setPlayers([]); // Start with no players for GM
-        setMyPlayerId(null); // GM is not a player
+        dispatch({type: 'SET_PLAYERS', payload: []});
+        setMyPlayerId(null);
     }
 
     network.createGameChannel(newGameId);
@@ -250,14 +234,10 @@ const App: React.FC = () => {
     connectionTimeoutRef.current = window.setTimeout(() => {
         setConnectionStatus('failed');
         network.removePresence(id, playerId);
-    }, 20000); // Increased to 20 seconds
+    }, 20000);
   };
 
   const startGame = async () => {
-    if (players.length < 1 && gameMode !== 'online-gm') { // GM can start with 0 players, but we'll disable the button.
-      alert('You need at least one player to start.');
-      return;
-    }
     if (players.some(p => !p.name.trim())) {
       alert('All players must have a name before starting.');
       return;
@@ -298,11 +278,10 @@ const App: React.FC = () => {
       return;
     }
     
-    // Local/GM logic
-    const newPlayers = [...players];
-    if (newPlayers[currentPlayerIndex]) {
-        newPlayers[currentPlayerIndex].lastSeenLogIndex = gameData.storyLog.length;
-        setPlayers(newPlayers);
+    const currentPlayer = players[currentPlayerIndex];
+    if (currentPlayer) {
+        const updatedPlayer = {...currentPlayer, lastSeenLogIndex: gameData.storyLog.length};
+        dispatch({type: 'UPDATE_PLAYER', payload: updatedPlayer});
     }
     
     setCurrentPlayerIndex(prev => (prev + 1) % (players.length || 1));
@@ -322,14 +301,14 @@ const App: React.FC = () => {
           dispatch({ type: 'ADD_LOG_ENTRY', payload: { type: 'stat_change', text: `(${playerToRemove.name}) Has Left the Game!` } });
           
           const leavingPlayerIndex = players.findIndex(p => p.id === myPlayerId);
-          const newPlayers = players.filter(p => p.id !== myPlayerId);
-          setPlayers(newPlayers);
+          dispatch({ type: 'REMOVE_PLAYER', payload: { id: myPlayerId } });
+          const newPlayerCount = players.length - 1;
 
-          if (newPlayers.length > 0) {
+          if (newPlayerCount > 0) {
               if (leavingPlayerIndex < currentPlayerIndex) {
                   setCurrentPlayerIndex(prev => prev - 1);
               } else {
-                  setCurrentPlayerIndex(prev => prev % newPlayers.length);
+                  setCurrentPlayerIndex(prev => prev % newPlayerCount);
               }
           } else {
               setCurrentPlayerIndex(0);
@@ -352,12 +331,9 @@ const App: React.FC = () => {
               }
           });
           
-          const newPlayers = players.filter(p => p.id !== playerToRemove.id);
-          setPlayers(newPlayers);
-
-          // The current index will now point to the next player in the list.
-          // If the last player leaves, the index becomes 0.
-          setCurrentPlayerIndex(currentPlayerIndex % (newPlayers.length || 1));
+          dispatch({ type: 'REMOVE_PLAYER', payload: { id: playerToRemove.id } });
+          const newPlayerCount = players.length - 1;
+          setCurrentPlayerIndex(currentPlayerIndex % (newPlayerCount || 1));
       }
   };
 
@@ -422,14 +398,13 @@ const App: React.FC = () => {
           <SetupView
             gameData={gameData}
             dispatch={dispatch}
-            players={players}
-            setPlayers={setPlayers}
             onStartLocalGame={startLocalGame}
             onHostOnlineGame={hostOnlineGame}
             onJoinOnlineGame={joinOnlineGameAsPlayer}
             gameId={gameId}
             onStartGameForEveryone={startGame}
             onSendLobbyMessage={handleSendLobbyChatMessage}
+            onPreviewAsset={setPreviewAsset}
           />
         );
       case 'play':
@@ -447,7 +422,6 @@ const App: React.FC = () => {
           <GameView 
             gameData={gameData}
             dispatch={onlineDispatch}
-            players={players}
             currentPlayer={players[currentPlayerIndex]}
             currentPlayerIndex={currentPlayerIndex}
             onEndTurn={handleEndTurn}
@@ -475,6 +449,7 @@ const App: React.FC = () => {
   return (
       <div className="min-h-screen bg-primary text-light font-sans p-4 relative">
           <audio ref={audioRef} />
+          {previewAsset && <ImagePreviewModal asset={previewAsset} onClose={() => setPreviewAsset(null)} />}
           {isLoading && (
             <div className="fixed inset-0 bg-primary bg-opacity-90 flex items-center justify-center z-50">
                 <div className="text-center">
@@ -503,8 +478,9 @@ const App: React.FC = () => {
                     </button>
                   )}
                   {(gameMode === 'local' || gameMode === 'online-gm') && gamePhase === 'play' && (
-                    <button onClick={() => setIsGmMenuOpen(true)} className="px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-md transition-colors">
+                    <button onClick={() => setIsGmMenuOpen(true)} className="px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-md transition-colors relative">
                       GM Actions
+                      {gameData.pendingAssetApprovals.length > 0 && <span className="absolute -top-1 -right-1 bg-red-600 text-white text-xs font-bold rounded-full h-5 w-5 flex items-center justify-center animate-pulse">{gameData.pendingAssetApprovals.length}</span>}
                     </button>
                   )}
                 </div>
@@ -520,9 +496,8 @@ const App: React.FC = () => {
                     onClose={() => setIsGmMenuOpen(false)}
                     gameData={gameData}
                     dispatch={dispatch}
-                    players={players}
-                    setPlayers={setPlayers}
                     gameId={gameId}
+                    onPreviewAsset={setPreviewAsset}
                 />
               )}
           </div>

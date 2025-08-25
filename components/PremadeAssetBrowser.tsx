@@ -5,10 +5,21 @@ import { PREMADE_BACKGROUNDS, PREMADE_SPRITE_COLLECTIONS, PREMADE_CG_COLLECTIONS
 interface PremadeAssetBrowserProps {
   onAddAsset: (asset: Omit<Asset, 'id'>) => void;
   onAddAssetCollection: (assets: PremadeAsset[]) => void;
+  onPreviewAsset?: (asset: Asset) => void;
 }
 
-const PremadeAssetBrowser: React.FC<PremadeAssetBrowserProps> = ({ onAddAsset, onAddAssetCollection }) => {
+const PremadeAssetBrowser: React.FC<PremadeAssetBrowserProps> = ({ onAddAsset, onAddAssetCollection, onPreviewAsset }) => {
   const [category, setCategory] = useState<'backgrounds' | 'characterSprites' | 'cgs'>('backgrounds');
+
+  const handlePreview = (asset: PremadeAsset) => {
+    if (onPreviewAsset) {
+      onPreviewAsset({
+        ...asset,
+        id: `preview-${asset.url}`,
+        isPublished: true,
+      });
+    }
+  };
 
   const renderContent = () => {
     switch (category) {
@@ -17,7 +28,7 @@ const PremadeAssetBrowser: React.FC<PremadeAssetBrowserProps> = ({ onAddAsset, o
                  <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 max-h-64 overflow-y-auto p-1 bg-primary rounded">
                     {PREMADE_BACKGROUNDS.map(asset => (
                         <div key={asset.url} className="bg-secondary p-2 rounded-lg group relative">
-                            <img src={asset.url} alt={asset.name} className="w-full h-24 object-cover rounded-md" />
+                            <img src={asset.url} alt={asset.name} className="w-full h-24 object-cover rounded-md cursor-pointer" onClick={() => handlePreview(asset)}/>
                             <p className="text-xs mt-1 truncate">{asset.name}</p>
                             <div className="absolute inset-0 bg-black bg-opacity-60 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
                             <button
@@ -38,7 +49,7 @@ const PremadeAssetBrowser: React.FC<PremadeAssetBrowserProps> = ({ onAddAsset, o
                 <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 max-h-64 overflow-y-auto p-1 bg-primary rounded">
                     {collections.map(collection => (
                          <div key={collection.name} className="bg-secondary p-2 rounded-lg group relative">
-                            <img src={collection.assets[0].url} alt={collection.name} className="w-full h-24 object-cover rounded-md" />
+                            <img src={collection.assets[0].url} alt={collection.name} className="w-full h-24 object-cover rounded-md cursor-pointer" onClick={() => handlePreview(collection.assets[0])}/>
                             <p className="text-xs mt-1 truncate">{collection.name} ({collection.assets.length} assets)</p>
                             <div className="absolute inset-0 bg-black bg-opacity-60 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
                             <button

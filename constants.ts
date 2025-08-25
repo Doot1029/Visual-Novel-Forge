@@ -21,6 +21,8 @@ export const INITIAL_GAME_DATA: GameData = {
   chatLog: [],
   lobbyChatLog: [],
   lobbyMusicUrl: null,
+  players: [],
+  pendingAssetApprovals: [],
 };
 
 export const MAX_PLAYERS = 5;
