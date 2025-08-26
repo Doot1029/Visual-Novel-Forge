@@ -3283,6 +3283,9 @@ const App = () => {
 
     network.onMessage((message) => {
       if (message.type === 'PLAYER_JOIN_REQUEST') {
+          if (gameData.players.some(p => p.id === message.payload.id)) {
+            return; // Player already exists, ignore duplicate request. Solves race condition.
+          }
           if (gameData.players.some(p => p.name.toLowerCase() === message.payload.name.toLowerCase())) {
               const logAction = { type: 'ADD_LOBBY_CHAT_MESSAGE', payload: {
                   senderId: 'system',
@@ -3501,10 +3504,10 @@ const App = () => {
     setSavedSessions(prev => [newSession, ...prev.filter(s => s.gameId !== newGameId)]);
   };
 
-  const joinOnlineGameAsPlayer = (id, name) => {
+  const joinOnlineGameAsPlayer = (id, name, existingPlayerId) => {
     setGameId(id);
     setGameMode('online-player');
-    const playerId = sessionId;
+    const playerId = existingPlayerId || sessionId;
     setMyPlayerId(playerId);
     network.joinGameChannel(id);
     network.setupPresence(id, playerId, name);
@@ -3669,7 +3672,7 @@ const App = () => {
             }
 
         } else if (session.role === 'player' && session.myPlayerId && session.myPlayerName) {
-            joinOnlineGameAsPlayer(session.gameId, session.myPlayerName);
+            joinOnlineGameAsPlayer(session.gameId, session.myPlayerName, session.myPlayerId);
         }
     };
 
