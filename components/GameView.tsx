@@ -12,259 +12,480 @@ interface SceneState {
   dialogue: { characterName: string; text: string } | null;
 }
 
-// --- Helper Functions ---
-const findAssetUrlById = (assets: Asset[], assetId: string | null): string | null => {
-    if (!assetId) return null;
-    const asset = assets.find(a => a.id === assetId);
-    return asset ? asset.url : null;
-};
+const findAssetUrl = (assets: Asset[], id: string | null): string | null => {
+    if (!id) return null;
+    return assets.find(a => a.id === id)?.url || null;
+}
 
-// --- Sub-components ---
-
-const Visuals: React.FC<{ scene: SceneState; characters: Character[]; assets: Asset[]; onClick?: () => void; isPlayingBack?: boolean }> = ({ scene, characters, assets, onClick, isPlayingBack = false }) => {
-    const bgUrl = findAssetUrlById(assets, scene.backgroundUrl);
-    const cgUrl = findAssetUrlById(assets, scene.cgUrl);
+const Visuals: React.FC<{ scene: SceneState; characters: Character[]; assets: Asset[]; onClick?: () => void; isPlayingBack?: boolean }> = ({ scene, characters, assets, onClick, isPlayingBack }) => {
+    const bgUrl = findAssetUrl(assets, scene.backgroundUrl);
+    const cgUrl = findAssetUrl(assets, scene.cgUrl);
 
     const activeSprites = Object.entries(scene.sprites)
       .map(([charId, assetId]) => {
-        const url = findAssetUrlById(assets, assetId);
+        const url = findAssetUrl(assets, assetId);
         const character = characters.find(c => c.id === charId);
         return url && character ? { url, name: character.name } : null;
       })
       .filter((s): s is { url: string; name: string } => s !== null);
 
     return (
-        <div onClick={onClick} className={`aspect-video bg-black rounded-lg shadow-2xl overflow-hidden relative flex-1 ${isPlayingBack ? 'cursor-pointer' : ''}`}>
+        <div onClick={onClick} className={`aspect-video bg-black rounded-lg shadow-2xl overflow-hidden relative flex-1 transition-all duration-500 ${isPlayingBack ? 'cursor-pointer' : ''}`}>
              {bgUrl && <img src={bgUrl} alt="background" className="absolute top-0 left-0 w-full h-full object-cover transition-opacity duration-1000" style={{opacity: bgUrl ? 1 : 0}} />}
-            
-            <div className="absolute bottom-0 left-0 right-0 h-full flex justify-center items-end">
+             
+             <div className="absolute bottom-0 left-0 w-full h-4/5 flex justify-center items-end">
                 {activeSprites.map((sprite, index) => (
-                    <img key={index} src={sprite.url} alt={sprite.name} className="h-full max-h-[80%] object-contain transition-transform duration-500" />
+                    <img key={index} src={sprite.url} alt={sprite.name} className="h-full object-contain transition-all duration-500 mx-4" />
                 ))}
-            </div>
+             </div>
+             
+             {cgUrl && <img src={cgUrl} alt="cg" className="absolute top-0 left-0 w-full h-full object-contain bg-black bg-opacity-75 transition-opacity duration-500" style={{opacity: cgUrl ? 1 : 0}} />}
 
-            {cgUrl && (
-                 <div className="absolute inset-0 bg-black bg-opacity-75 flex items-center justify-center p-4">
-                    <img src={cgUrl} alt="cg" className="max-w-full max-h-full object-contain rounded-lg" />
+             {scene.dialogue && (
+                <div className="absolute bottom-0 left-0 w-full bg-black bg-opacity-70 p-4 border-t-2 border-accent">
+                    <p className="font-bold text-highlight mb-1">{scene.dialogue.characterName}</p>
+                    <p className="text-lg text-light leading-snug">{scene.dialogue.text}</p>
+                </div>
+             )}
+             {isPlayingBack && (
+                <div className="absolute bottom-4 right-4 text-white bg-black bg-opacity-50 rounded-full p-2 animate-pulse">
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                    </svg>
                 </div>
             )}
         </div>
     );
 };
 
-const DialogueBox: React.FC<{ dialogue: { characterName: string; text: string } | null }> = ({ dialogue }) => {
-    if (!dialogue) return <div className="h-32"></div>;
-    return (
-        <div className="bg-secondary bg-opacity-90 p-4 rounded-lg border border-accent min-h-[8rem]">
-            <h3 className="text-xl font-bold text-highlight mb-2">{dialogue.characterName}</h3>
-            <p className="text-light whitespace-pre-wrap">{dialogue.text}</p>
-        </div>
-    );
-};
-
-
-const HistoryView: React.FC<{ log: StoryLogEntry[], characters: Character[], assets: Asset[] }> = ({ log, characters, assets }) => {
+const HistoryLogContent: React.FC<{ gameData: GameData }> = ({ gameData }) => {
     const logEndRef = useRef<HTMLDivElement>(null);
     useEffect(() => {
-        logEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-    }, [log]);
-    
-    const getCharacterName = (id: string) => characters.find(c => c.id === id)?.name || 'Unknown';
-    const getAssetName = (id: string | null) => assets.find(a => a.id === id)?.name || 'None';
+        logEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    }, [gameData.storyLog]);
+
+    const getCharacter = (id: string) => gameData.characters.find(c => c.id === id);
 
     return (
-        <div className="space-y-2 p-2 overflow-y-auto h-full bg-primary rounded-md text-sm">
-            {log.map((entry, index) => {
-                switch (entry.type) {
+        <div className="flex-1 overflow-y-auto space-y-3 pr-2">
+            {gameData.storyLog.map((log, index) => {
+                let content;
+                switch (log.type) {
                     case 'dialogue':
-                        return <div key={index}><strong>{getCharacterName(entry.characterId)}:</strong> {entry.text}</div>;
+                        content = <p><span className="font-bold text-blue-400">{getCharacter(log.characterId)?.name || 'Unknown'}:</span> {log.text}</p>;
+                        break;
+                    case 'choice':
+                        content = (
+                            <div className="bg-accent p-2 rounded-md my-2">
+                                <p className="font-semibold text-purple-400">Choices appeared:</p>
+                                <ul className="list-disc pl-5">
+                                    {(log.choices || []).map((c, i) => <li key={i}>{c.text}</li>)}
+                                </ul>
+                            </div>
+                        );
+                        break;
                     case 'choice_selection':
-                        return <div key={index} className="text-blue-400 italic">Choice made by {getCharacterName(entry.characterId)}: "{entry.choice.text}"</div>
-                    case 'background_change':
-                        return <div key={index} className="text-gray-400 italic">Background changed to: {getAssetName(entry.assetId)}</div>
-                    case 'sprite_change':
-                        return <div key={index} className="text-gray-400 italic">{getCharacterName(entry.characterId)}'s sprite changed to: {getAssetName(entry.assetId)}</div>
-                    case 'cg_show':
-                        return <div key={index} className="text-gray-400 italic">CG shown: {getAssetName(entry.assetId)}</div>
+                        const player = gameData.players.find(p => p.id === log.playerId);
+                        content = (
+                            <p className="text-yellow-400 italic">
+                                {player?.name || 'A player'} chose: "{log.choice.text}"
+                            </p>
+                        );
+                        break;
                     case 'dice_roll':
-                        return <div key={index} className="text-purple-400 italic">{getCharacterName(entry.characterId)} rolled a {entry.result} (d{entry.sides})</div>
+                        content = <p className="text-gray-400 italic">{getCharacter(log.characterId)?.name} rolled a d{log.sides} and got: <span className="font-bold text-white">{log.result}</span></p>
+                        break;
                     case 'quest_status':
+                        content = <p className="text-green-400 font-semibold">{log.text}</p>
+                        break;
                     case 'stat_change':
-                        return <div key={index} className="text-yellow-400 italic">{entry.text}</div>
+                        content = <p className="text-teal-400 italic">{log.text}</p>
+                        break;
                     default:
-                        return null;
+                        content = null;
                 }
+                return <div key={index}>{content}</div>;
             })}
             <div ref={logEndRef} />
         </div>
     );
 };
 
-const StatusView: React.FC<{ characters: Character[], quests: Quest[], coins: number }> = ({ characters, quests, coins }) => {
+const StatusContent: React.FC<{gameData: GameData}> = ({gameData}) => {
     return (
-        <div className="p-2 overflow-y-auto h-full bg-primary rounded-md space-y-4">
-            <div>
-                <h4 className="text-lg font-bold text-highlight mb-2">Party Coins: {coins}</h4>
-            </div>
-            <div>
-                <h4 className="text-lg font-bold text-highlight mb-2">Characters</h4>
-                {characters.filter(c => c.id !== 'narrator').map(char => (
-                    <div key={char.id} className="bg-accent p-2 rounded mb-2">
-                        <p className="font-bold">{char.name}</p>
-                        <p className="text-sm">HP: {char.health}/{char.maxHealth} | MP: {char.mana}/{char.maxMana}</p>
-                    </div>
-                ))}
-            </div>
-             <div>
-                <h4 className="text-lg font-bold text-highlight mb-2">Active Quests</h4>
-                {quests.filter(q => q.status === 'active').map(quest => (
-                    <div key={quest.id} className="bg-accent p-2 rounded mb-2">
-                        <p className="font-bold">{quest.title}</p>
-                        <p className="text-sm text-gray-300">{quest.description}</p>
-                    </div>
-                ))}
-            </div>
-        </div>
-    );
-};
-
-const PlayerControls: React.FC<{
-    gameData: GameData;
-    dispatch: React.Dispatch<Action>;
-    currentPlayer: Player;
-    onEndTurn: () => void;
-}> = ({ gameData, dispatch, currentPlayer, onEndTurn }) => {
-    const [speakerId, setSpeakerId] = useState<string>(NARRATOR_CHARACTER.id);
-    const [dialogue, setDialogue] = useState('');
-    const [choices, setChoices] = useState<Choice[]>([{text: ''}, {text: ''}]);
-    
-    const addLog = (entry: StoryLogEntry) => dispatch({ type: 'ADD_LOG_ENTRY', payload: entry });
-
-    const handleSpeak = () => {
-        if (!dialogue.trim()) return;
-        addLog({ type: 'dialogue', characterId: speakerId, text: dialogue });
-        setDialogue('');
-    };
-
-    const handleEndTurnWithChoices = () => {
-        const validChoices = choices.filter(c => c.text.trim());
-        if (validChoices.length > 0) {
-            addLog({ type: 'choice', choices: validChoices });
-        }
-        onEndTurn();
-    };
-
-    const updateChoiceText = (index: number, text: string) => {
-        const newChoices = [...choices];
-        newChoices[index].text = text;
-        setChoices(newChoices);
-    }
-    
-    const handleChangeBg = () => {
-        const assetName = prompt("Enter name of background asset to use (or blank to clear):");
-        if (assetName === null) return;
-        const asset = gameData.assets.find(a => a.type === 'background' && a.name.toLowerCase() === assetName.toLowerCase());
-        addLog({type: 'background_change', assetId: asset ? asset.id : null});
-    }
-    const handleShowCg = () => {
-        const assetName = prompt("Enter name of CG asset to show (or blank to clear):");
-        if (assetName === null) return;
-        const asset = gameData.assets.find(a => a.type === 'cg' && a.name.toLowerCase() === assetName.toLowerCase());
-        addLog({type: 'cg_show', assetId: asset ? asset.id : null});
-    }
-    const handleChangeSprite = () => {
-        const charName = prompt("Enter character name to change sprite for:");
-        if (!charName) return;
-        const character = gameData.characters.find(c => c.name.toLowerCase() === charName.toLowerCase());
-        if (!character) { alert('Character not found'); return; }
-        
-        const assetName = prompt(`Enter name of sprite for ${character.name} (or blank to clear):`);
-        if (assetName === null) return;
-        const asset = gameData.assets.find(a => a.type === 'characterSprite' && a.name.toLowerCase() === assetName.toLowerCase());
-        addLog({type: 'sprite_change', characterId: character.id, assetId: asset ? asset.id : null});
-    }
-    const handleRollDice = () => {
-        const sides = parseInt(prompt("How many sides on the die?", "20") || "20");
-        if (isNaN(sides) || sides < 1) return;
-        const result = Math.floor(Math.random() * sides) + 1;
-        addLog({type: 'dice_roll', characterId: speakerId, sides, result});
-    }
-
-    return (
-        <div className="bg-secondary p-4 rounded-lg border border-accent space-y-3">
-            <h3 className="text-xl font-bold text-highlight">Your Turn, {currentPlayer.name}</h3>
-            <div>
-                <textarea 
-                    value={dialogue} 
-                    onChange={e => setDialogue(e.target.value)}
-                    placeholder="Enter dialogue as..."
-                    className="w-full p-2 bg-primary rounded-md h-20"
-                />
-                <div className="flex justify-between items-center mt-1">
-                    <select value={speakerId} onChange={e => setSpeakerId(e.target.value)} className="p-2 bg-primary rounded-md text-sm">
-                        {gameData.characters.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-                    </select>
-                    <button onClick={handleSpeak} className="px-3 py-1 bg-blue-600 hover:bg-blue-700 rounded-md text-sm">Add Dialogue</button>
-                </div>
-            </div>
-            
-            <div className="grid grid-cols-3 gap-2">
-                 <button onClick={handleChangeBg} className="text-sm px-2 py-2 bg-accent hover:bg-opacity-75 rounded-md">Change BG</button>
-                 <button onClick={handleShowCg} className="text-sm px-2 py-2 bg-accent hover:bg-opacity-75 rounded-md">Show CG</button>
-                 <button onClick={handleChangeSprite} className="text-sm px-2 py-2 bg-accent hover:bg-opacity-75 rounded-md">Change Sprite</button>
-                 <button onClick={handleRollDice} className="text-sm px-2 py-2 bg-accent hover:bg-opacity-75 rounded-md">Roll Dice</button>
-            </div>
-            
-            <div>
-                <h4 className="text-md font-semibold text-highlight mb-1">Add Choices for Next Player</h4>
-                <div className="space-y-1">
-                    {choices.map((choice, index) => (
-                        <input key={index} type="text" value={choice.text} onChange={e => updateChoiceText(index, e.target.value)} placeholder={`Choice ${index + 1}`} className="w-full p-1 bg-primary text-sm rounded-md" />
+        <div className="flex-1 overflow-y-auto pr-2">
+            <div className="mb-4">
+                <h3 className="font-bold text-purple-400 mb-2">Player Coins</h3>
+                <div className="space-y-1 text-sm">
+                    {gameData.players.map(player => (
+                        <div key={player.id} className="flex justify-between bg-accent p-2 rounded-md">
+                            <span className="font-semibold">{player.name}</span>
+                            <span className="text-yellow-400 font-mono">{player.coins || 0} 💰</span>
+                        </div>
                     ))}
                 </div>
             </div>
+            
+            <div className="mb-4">
+                <h3 className="font-bold text-purple-400 mb-2">Character Stats</h3>
+                <div className="space-y-3">
+                {gameData.characters.filter(c => c.id !== 'narrator').map(char => (
+                    <div key={char.id} className={`bg-accent p-2 rounded-lg transition-all ${char.status === 'defeated' ? 'opacity-50' : ''}`}>
+                        <div className="flex justify-between items-center mb-1">
+                             <p className="font-semibold">{char.name}</p>
+                             {char.status === 'defeated' && <span className="text-xs font-bold text-red-500 bg-primary px-2 py-0.5 rounded-full">DEFEATED</span>}
+                        </div>
+                       
+                        <div title="Health">
+                            <span className="text-xs text-red-400">HP</span>
+                            <div className="w-full bg-primary rounded-full h-2.5">
+                                <div className="bg-red-600 h-2.5 rounded-full" style={{width: `${(char.health / char.maxHealth) * 100}%`}}></div>
+                            </div>
+                            <span className="text-xs">{char.health} / {char.maxHealth}</span>
+                        </div>
+                        <details className="text-xs mt-1">
+                            <summary className="cursor-pointer text-gray-400">Show Stats</summary>
+                            <div className="grid grid-cols-3 gap-x-2 gap-y-1 mt-1">
+                                {Object.entries(char.stats).map(([stat, value]) => (
+                                    <div key={stat} className="flex justify-between bg-primary p-1 rounded">
+                                        <span className="font-bold uppercase">{stat.slice(0, 3)}</span>
+                                        <span>{value}</span>
+                                    </div>
+                                ))}
+                            </div>
+                        </details>
+                    </div>
+                ))}
+                </div>
+            </div>
 
-            <button onClick={handleEndTurnWithChoices} className="w-full mt-2 p-3 bg-highlight text-white font-bold rounded-lg hover:bg-opacity-80">
-                End Turn
-            </button>
+            <div>
+                <h3 className="font-bold text-purple-400 mb-2">Quest Log</h3>
+                <div className="space-y-2">
+                    {gameData.quests.map(quest => (
+                        <details key={quest.id} className="bg-accent p-2 rounded-lg text-sm">
+                            <summary className="cursor-pointer font-semibold">
+                                {quest.title} <span className={`text-xs ${quest.status === 'completed' ? 'text-green-400' : 'text-yellow-400'}`}>({quest.status})</span>
+                            </summary>
+                            <p className="text-xs text-gray-300 mt-1">{quest.description}</p>
+                        </details>
+                    ))}
+                     {gameData.quests.length === 0 && <p className="text-xs text-gray-400 italic">No active quests.</p>}
+                </div>
+            </div>
         </div>
     );
-};
+}
 
-
-const ChoiceView: React.FC<{
-    choices: Choice[];
-    currentPlayer: Player;
-    dispatch: React.Dispatch<Action>;
-    onEndTurn: () => void;
-}> = ({ choices, currentPlayer, dispatch, onEndTurn }) => {
-    
-    const handleSelectChoice = (choice: Choice) => {
-        const characterId = NARRATOR_CHARACTER.id; 
-        dispatch({
-            type: 'ADD_LOG_ENTRY',
-            payload: {
-                type: 'choice_selection',
-                playerId: currentPlayer.id,
-                characterId,
-                choice,
-            }
+const ChoiceEffectsPopover: React.FC<{ choice: Choice, onUpdate: (choice: Choice) => void, characters: Character[], onClose: () => void }> = ({ choice, onUpdate, characters, onClose }) => {
+    const effects = choice.effects || {};
+    const handleEffectChange = (type: 'coins' | 'hp', value: string) => {
+        const numValue = parseInt(value) || 0;
+        onUpdate({
+            ...choice,
+            effects: { ...effects, [type]: numValue }
         });
-        onEndTurn();
     };
+    const handleTargetChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
+        onUpdate({
+            ...choice,
+            effects: { ...effects, targetCharacterId: e.target.value }
+        });
+    }
 
     return (
-         <div className="bg-secondary p-4 rounded-lg border border-accent space-y-2">
-            <h3 className="text-xl font-bold text-highlight">Your Choice, {currentPlayer.name}</h3>
-            {choices.map((choice, index) => (
-                <button 
-                    key={index}
-                    onClick={() => handleSelectChoice(choice)}
-                    className="w-full p-3 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-lg text-left"
-                >
-                    {choice.text}
-                </button>
-            ))}
+        <div className="fixed inset-0 bg-primary bg-opacity-70 z-50 flex items-center justify-center" onClick={onClose}>
+            <div className="bg-secondary p-4 rounded-lg border-2 border-accent w-full max-w-sm space-y-3" onClick={e => e.stopPropagation()}>
+                <h4 className="text-lg font-bold text-highlight">Set Choice Effects</h4>
+                <p className="text-xs text-gray-400">These effects will be hidden from the next player.</p>
+                
+                <div>
+                    <label className="text-sm">Coin Change (for next player)</label>
+                    <input type="number" value={effects.coins || 0} onChange={e => handleEffectChange('coins', e.target.value)} className="w-full p-2 mt-1 bg-primary rounded-md" placeholder="+10, -5..." />
+                </div>
+
+                <div>
+                    <label className="text-sm">Target Character for HP</label>
+                    <select value={effects.targetCharacterId || ''} onChange={handleTargetChange} className="w-full p-2 mt-1 bg-primary rounded-md">
+                        <option value="">-- Select Character --</option>
+                        {characters.filter(c => c.id !== 'narrator' && c.status === 'active').map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                    </select>
+                </div>
+                
+                <div>
+                    <label className="text-sm">HP Change</label>
+                    <input type="number" value={effects.hp || 0} onChange={e => handleEffectChange('hp', e.target.value)} className="w-full p-2 mt-1 bg-primary rounded-md" disabled={!effects.targetCharacterId} />
+                </div>
+
+                <button onClick={onClose} className="w-full p-2 mt-2 bg-highlight text-white font-bold rounded-lg hover:bg-opacity-80">Done</button>
+            </div>
+        </div>
+    )
+}
+
+const InputController: React.FC<{ dispatch: React.Dispatch<Action>, gameData: GameData, onEndTurn: () => void, isMyTurn: boolean, currentPlayer: Player, currentPlayerIndex: number, onSceneChange: (change: Partial<SceneState>) => void, isPlayingBack: boolean }> = ({ dispatch, gameData, onEndTurn, isMyTurn, currentPlayer, currentPlayerIndex, onSceneChange, isPlayingBack }) => {
+    const [dialogue, setDialogue] = useState('');
+    const [choices, setChoices] = useState<Choice[]>([]);
+    const [stagedSceneChanges, setStagedSceneChanges] = useState<StoryLogEntry[]>([]);
+    const [speakingCharacterId, setSpeakingCharacterId] = useState(NARRATOR_CHARACTER.id);
+    const [diceSides, setDiceSides] = useState(20);
+    const [editingChoiceIndex, setEditingChoiceIndex] = useState<number | null>(null);
+
+    // Player Asset Submission State
+    const [isSubmittingSprite, setIsSubmittingSprite] = useState(false);
+    const [newSpriteName, setNewSpriteName] = useState('');
+    const [newSpriteFile, setNewSpriteFile] = useState<File | null>(null);
+    const [newSpriteAssignee, setNewSpriteAssignee] = useState('');
+
+
+    useEffect(() => {
+        setSpeakingCharacterId(NARRATOR_CHARACTER.id);
+    }, [currentPlayer?.id]);
+
+    useEffect(() => {
+        const activeChars = gameData.characters.filter(c => c.id !== 'narrator' && c.status === 'active');
+        if (activeChars.length > 0 && !newSpriteAssignee) {
+            setNewSpriteAssignee(activeChars[0].id);
+        }
+    }, [gameData.characters, newSpriteAssignee]);
+    
+    const activeCharacters = gameData.characters.filter(c => c.status !== 'defeated');
+    const speakingCharacter = activeCharacters.find(c => c.id === speakingCharacterId);
+    
+    const lastLog = gameData.storyLog[gameData.storyLog.length - 1];
+    const choicesToShow = lastLog?.type === 'choice' ? lastLog.choices : null;
+
+    const handleAddChoice = () => setChoices([...choices, {text: '', effects: {}}]);
+    const handleRemoveChoice = (index: number) => setChoices(choices.filter((_, i) => i !== index));
+    const handleChoiceChange = (index: number, updatedChoice: Choice) => {
+        const newChoices = [...choices];
+        newChoices[index] = updatedChoice;
+        setChoices(newChoices);
+    }
+    
+    const handleEndTurn = () => {
+        const logsToDispatch = [...stagedSceneChanges];
+
+        if (dialogue.trim()) {
+            logsToDispatch.push({ type: 'dialogue', characterId: speakingCharacterId, text: dialogue.trim() });
+        }
+
+        const validChoices = choices.filter(c => c.text.trim());
+        if (validChoices.length > 0) {
+            logsToDispatch.push({ type: 'choice', choices: validChoices });
+        }
+
+        logsToDispatch.forEach(log => dispatch({ type: 'ADD_LOG_ENTRY', payload: log }));
+        
+        setDialogue('');
+        setChoices([]);
+        setStagedSceneChanges([]);
+        onEndTurn();
+    }
+    
+    const handleChoiceSelection = (choice: Choice) => {
+        dispatch({ type: 'ADD_LOG_ENTRY', payload: { type: 'choice_selection', playerId: currentPlayer.id, characterId: speakingCharacterId, choice } });
+        onEndTurn();
+    }
+
+    const handleSceneChange = (type: 'background' | 'cg' | 'sprite', assetId: string | null) => {
+        if (!speakingCharacter) return;
+
+        let newLogEntry: StoryLogEntry | null = null;
+        let sceneUpdate: Partial<SceneState> = {};
+        const assetUrl = findAssetUrl(gameData.assets, assetId);
+
+        switch(type) {
+            case 'background':
+                newLogEntry = { type: 'background_change', assetId: assetId };
+                sceneUpdate = { backgroundUrl: assetUrl };
+                break;
+            case 'cg':
+                newLogEntry = { type: 'cg_show', assetId: assetId };
+                sceneUpdate = { cgUrl: assetUrl };
+                break;
+            case 'sprite':
+                newLogEntry = { type: 'sprite_change', characterId: speakingCharacterId, assetId: assetId };
+                sceneUpdate = { sprites: { [speakingCharacterId]: assetId } };
+                break;
+        }
+
+        if (newLogEntry) {
+            onSceneChange(sceneUpdate);
+
+            const finalNewLogEntry = newLogEntry;
+            setStagedSceneChanges(prev => {
+                const filtered = prev.filter(c => {
+                    if (c.type !== finalNewLogEntry.type) return true;
+                    if (c.type === 'sprite_change' && finalNewLogEntry.type === 'sprite_change') {
+                        return c.characterId !== finalNewLogEntry.characterId;
+                    }
+                    return false;
+                });
+                return [...filtered, finalNewLogEntry];
+            });
+        }
+    };
+    
+    const handleDiceRoll = () => {
+        const validSides = Math.max(1, diceSides);
+        const result = Math.floor(Math.random() * validSides) + 1;
+        dispatch({ type: 'ADD_LOG_ENTRY', payload: {
+            type: 'dice_roll',
+            characterId: speakingCharacterId,
+            sides: validSides,
+            result: result,
+        }});
+    };
+    
+    const handleSubmitSprite = () => {
+        if (!newSpriteFile || !newSpriteName.trim() || !newSpriteAssignee) {
+            alert('Please provide a file, a name, and a target character for the new sprite.');
+            return;
+        }
+
+        const reader = new FileReader();
+        reader.onload = (e) => {
+            const url = e.target?.result as string;
+            const assetPayload = {
+                type: 'characterSprite' as const,
+                url,
+                name: newSpriteName,
+                ownerId: currentPlayer.id,
+            };
+            dispatch({
+                type: 'SUBMIT_ASSET_FOR_APPROVAL',
+                payload: {
+                    asset: assetPayload,
+                    characterIdToAssign: newSpriteAssignee,
+                    submittingPlayerId: currentPlayer.id
+                }
+            });
+            // Reset form
+            setIsSubmittingSprite(false);
+            setNewSpriteFile(null);
+            setNewSpriteName('');
+        };
+        reader.readAsDataURL(newSpriteFile);
+    };
+
+    if (!isMyTurn) {
+        if (isPlayingBack) {
+            return <div className="bg-secondary p-4 rounded-lg mt-4 text-center text-gray-400">Playing back story... (Click visual to advance)</div>;
+        }
+        return (
+            <div className="bg-secondary p-4 rounded-lg mt-4 text-center">
+                <p className="text-xl text-gray-400">
+                    {`Player ${currentPlayerIndex + 1}'s Turn: `}
+                    <span className="text-highlight font-bold">{currentPlayer?.name || '...'}</span>
+                </p>
+                <p className="font-bold text-2xl animate-pulse text-light mt-2">Please Wait!</p>
+            </div>
+        );
+    }
+    
+    if (currentPlayer?.isWaitingForApproval) {
+        return (
+            <div className="bg-secondary p-4 rounded-lg mt-4 text-center">
+                <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-highlight mx-auto mb-3"></div>
+                <p className="font-bold text-xl text-yellow-400">Waiting for GM approval for your submitted asset...</p>
+            </div>
+        );
+    }
+    
+    if (!speakingCharacter) return <div className="bg-secondary p-4 rounded-lg mt-4 text-center text-red-500">Error: Selected character not found or is defeated. Please select another.</div>;
+    if (!currentPlayer) return <div className="bg-secondary p-4 rounded-lg mt-4 text-center text-red-500">Error: Current player not found.</div>;
+
+
+    const publishedAssets = gameData.assets.filter(a => a.isPublished);
+    const charSprites = publishedAssets.filter(a => (speakingCharacter.spriteAssetIds || []).includes(a.id));
+
+    return (
+        <div className="bg-secondary p-4 rounded-lg mt-4">
+            {editingChoiceIndex !== null && (
+                <ChoiceEffectsPopover 
+                    choice={choices[editingChoiceIndex]}
+                    onUpdate={(updatedChoice) => handleChoiceChange(editingChoiceIndex, updatedChoice)}
+                    characters={activeCharacters}
+                    onClose={() => setEditingChoiceIndex(null)}
+                />
+            )}
+             <p className="font-bold text-xl mb-2">Your Turn! (<span className="text-highlight">{currentPlayer.name}</span>)</p>
+             {choicesToShow ? (
+                <div>
+                    <p className="text-lg mb-2">You must make a choice:</p>
+                    <div className="flex flex-col space-y-2">
+                        {choicesToShow.map((choice, index) => (
+                            <button key={index} onClick={() => handleChoiceSelection(choice)} className="w-full p-3 bg-accent rounded-md text-lg text-left hover:bg-highlight">
+                                {choice.text}
+                            </button>
+                        ))}
+                    </div>
+                </div>
+             ) : (
+                <>
+                    <div className="flex flex-col md:flex-row gap-4 mb-4">
+                        <details className="flex-1">
+                            <summary className="cursor-pointer text-gray-400 hover:text-white">Scene Controls</summary>
+                            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 mt-2 p-2 bg-primary rounded-md">
+                                <select onChange={e => handleSceneChange('background', e.target.value)} className="p-2 bg-accent rounded-md"><option value="">- Clear BG -</option>{publishedAssets.filter(a => a.type === 'background').map(a => <option key={a.id} value={a.id}>{a.name}</option>)}</select>
+                                <select onChange={e => handleSceneChange('sprite', e.target.value)} className="p-2 bg-accent rounded-md" disabled={speakingCharacter.id === 'narrator'}><option value="">- Clear Sprite -</option>{charSprites.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}</select>
+                                <select onChange={e => handleSceneChange('cg', e.target.value)} className="p-2 bg-accent rounded-md"><option value="">- Clear CG -</option>{publishedAssets.filter(a => a.type === 'cg').map(a => <option key={a.id} value={a.id}>{a.name}</option>)}</select>
+                            </div>
+                        </details>
+                        <details className="flex-1">
+                            <summary className="cursor-pointer text-gray-400 hover:text-white">Dice Roller</summary>
+                            <div className="flex items-center gap-2 mt-2 p-2 bg-primary rounded-md">
+                                <span className="font-bold">d</span>
+                                <input type="number" value={diceSides} onChange={e => setDiceSides(parseInt(e.target.value) || 1)} className="w-20 p-1 bg-accent rounded-md" />
+                                <button onClick={handleDiceRoll} className="px-4 py-1 bg-purple-600 hover:bg-purple-700 rounded-md">Roll</button>
+                            </div>
+                        </details>
+                         <details className="flex-1" open={isSubmittingSprite} onToggle={(e) => setIsSubmittingSprite(e.currentTarget.open)}>
+                            <summary className="cursor-pointer text-gray-400 hover:text-white">Suggest New Sprite</summary>
+                            <div className="space-y-2 mt-2 p-2 bg-primary rounded-md">
+                               <input type="text" value={newSpriteName} onChange={e => setNewSpriteName(e.target.value)} placeholder="Sprite Name" className="w-full p-2 text-sm bg-accent rounded-md"/>
+                               <select value={newSpriteAssignee} onChange={e => setNewSpriteAssignee(e.target.value)} className="w-full p-2 text-sm bg-accent rounded-md">
+                                 {activeCharacters.filter(c=>c.id !== 'narrator').map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                               </select>
+                               <input type="file" accept="image/*,.webp" onChange={e => setNewSpriteFile(e.target.files?.[0] || null)} className="text-xs file:mr-2 file:py-1 file:px-2 file:rounded-full file:border-0 file:text-xs file:font-semibold file:bg-highlight file:text-white hover:file:bg-opacity-80"/>
+                               <button onClick={handleSubmitSprite} className="w-full text-sm px-4 py-1 bg-purple-600 hover:bg-purple-700 rounded-md">Submit for Approval</button>
+                            </div>
+                        </details>
+                    </div>
+                    
+                    <div className="mb-4">
+                        <label htmlFor="speak-as-select" className="block text-sm font-semibold text-gray-400 mb-1">Speak As</label>
+                        <select
+                            id="speak-as-select"
+                            value={speakingCharacterId}
+                            onChange={(e) => setSpeakingCharacterId(e.target.value)}
+                            className="w-full p-2 bg-accent rounded-md focus:ring-2 focus:ring-highlight outline-none"
+                        >
+                            {activeCharacters.map((char) => (
+                                <option key={char.id} value={char.id}>
+                                    {char.name}
+                                </option>
+                            ))}
+                        </select>
+                    </div>
+
+                    <input type="text" value={dialogue} onChange={e => setDialogue(e.target.value)} placeholder={`What does ${speakingCharacter.name} say or do?`} className="w-full p-2 bg-accent rounded-md focus:ring-2 focus:ring-highlight outline-none" />
+
+                    <div className="mt-4">
+                        <p className="text-sm text-gray-400">Optionally, add choices for the next player:</p>
+                        {choices.map((choice, index) => (
+                            <div key={index} className="flex items-center space-x-2 mt-1">
+                                <input type="text" value={choice.text} onChange={e => handleChoiceChange(index, {...choice, text: e.target.value})} placeholder={`Choice ${index + 1}`} className="w-full p-2 bg-accent rounded-md"/>
+                                <button onClick={() => setEditingChoiceIndex(index)} className="p-2 bg-accent rounded-md hover:bg-opacity-75" title="Set Choice Effects">✨</button>
+                                <button onClick={() => handleRemoveChoice(index)} className="text-red-500 hover:text-red-400 p-2 rounded-full font-bold">X</button>
+                            </div>
+                        ))}
+                        <button onClick={handleAddChoice} className="text-xs px-2 py-1 mt-1 bg-accent rounded-md hover:bg-opacity-75">+ Add Choice</button>
+                    </div>
+                    <button onClick={handleEndTurn} className="w-full mt-4 p-3 bg-highlight rounded-md text-lg font-bold hover:bg-opacity-80">Apply & End Turn</button>
+                </>
+             )}
         </div>
     )
 }
@@ -274,6 +495,7 @@ interface GameViewProps {
   gameData: GameData;
   dispatch: React.Dispatch<Action>;
   currentPlayer: Player | undefined;
+  currentPlayerIndex: number;
   onEndTurn: () => void;
   gameMode: GameMode;
   myPlayerId: string | null;
@@ -283,95 +505,197 @@ export const GameView: React.FC<GameViewProps> = ({
   gameData,
   dispatch,
   currentPlayer,
+  currentPlayerIndex,
   onEndTurn,
   gameMode,
   myPlayerId,
 }) => {
-    const [scene, setScene] = useState<SceneState>({ backgroundUrl: null, cgUrl: null, sprites: {}, dialogue: null });
-    const [activeTab, setActiveTab] = useState<'history' | 'status'>('history');
+    const [baseScene, setBaseScene] = useState<SceneState>({ backgroundUrl: null, cgUrl: null, sprites: {}, dialogue: null });
+    const [stagedScene, setStagedScene] = useState<Partial<SceneState>>({});
+    const [activeSideTab, setActiveSideTab] = useState<'history' | 'status'>('history');
+    
+    const isOnlineGame = gameMode === 'online-player' || gameMode === 'online-gm';
+    const isMyTurn = (gameMode === 'local' && !!currentPlayer) || (isOnlineGame && !!myPlayerId && currentPlayer?.id === myPlayerId);
+    const isSpectatingGm = gameMode === 'online-gm' && !myPlayerId;
+    
+    const [playbackState, setPlaybackState] = useState<'idle' | 'playing'>('idle');
+    const [playbackLogIndex, setPlaybackLogIndex] = useState(0); 
+    const [logsToPlay, setLogsToPlay] = useState<StoryLogEntry[]>([]);
+    const turnStarted = useRef(false);
+    
+    const memoizedFindAssetUrl = useCallback((id: string | null) => findAssetUrl(gameData.assets, id), [gameData.assets]);
+
+    const handleSceneChange = useCallback((change: Partial<SceneState>) => {
+        setStagedScene(prev => {
+            const newSprites = change.sprites ? {...prev.sprites, ...change.sprites} : prev.sprites;
+            return {...prev, ...change, sprites: newSprites};
+        });
+    }, []);
+
+    const combinedScene = { ...baseScene, ...stagedScene, sprites: {...baseScene.sprites, ...stagedScene.sprites} };
+
+    const reduceScene = useCallback((log: StoryLogEntry, currentScene: SceneState): SceneState => {
+        const newScene: SceneState = { ...currentScene, sprites: {...currentScene.sprites} };
+        switch (log.type) {
+            case 'background_change': newScene.backgroundUrl = memoizedFindAssetUrl(log.assetId); break;
+            case 'sprite_change': newScene.sprites[log.characterId] = memoizedFindAssetUrl(log.assetId); break;
+            case 'cg_show': newScene.cgUrl = memoizedFindAssetUrl(log.assetId); break;
+        }
+        return newScene;
+    }, [memoizedFindAssetUrl]);
 
     useEffect(() => {
-        let currentScene: SceneState = { backgroundUrl: null, cgUrl: null, sprites: {}, dialogue: null };
-        gameData.storyLog.forEach(log => {
-            switch (log.type) {
-                case 'background_change': 
-                    currentScene.backgroundUrl = log.assetId;
-                    break;
-                case 'sprite_change': 
-                    currentScene.sprites[log.characterId] = log.assetId;
-                    break;
-                case 'cg_show': 
-                    currentScene.cgUrl = log.assetId;
-                    break;
-                case 'dialogue':
-                    const char = gameData.characters.find(c => c.id === log.characterId);
-                    currentScene.dialogue = { characterName: char?.name || 'Narrator', text: log.text };
-                    break;
-                case 'choice_selection':
-                    const choiceChar = gameData.characters.find(c => c.id === log.characterId);
-                    currentScene.dialogue = { characterName: 'Narrator', text: `${choiceChar?.name || 'A player'} chose: "${log.choice.text}"` };
-                    break;
-                case 'stat_change':
-                case 'quest_status':
-                    currentScene.dialogue = { characterName: 'System', text: log.text };
-                    break;
-            }
-        });
-        setScene(currentScene);
-    }, [gameData.storyLog, gameData.characters]);
+        turnStarted.current = false;
+        setStagedScene({});
+    }, [currentPlayer]);
 
-    const lastLogEntry = gameData.storyLog[gameData.storyLog.length - 1];
-    const isMyTurn = currentPlayer?.id === myPlayerId || (gameMode === 'local' && gameData.players.length > 0);
-    const isGmSpectator = gameMode === 'online-gm' && !myPlayerId;
-    
-    const canControl = isMyTurn || (isGmSpectator && !lastLogEntry); // GM can start if log is empty
-    const isWaitingForChoice = lastLogEntry?.type === 'choice';
-
-    const canPlayerSendMessage = (gameMode === 'local') || (gameMode === 'online-player') || (gameMode === 'online-gm' && !!myPlayerId);
-
-    const handleSendMessage = (text: string) => {
-        const sender = gameData.players.find(p => p.id === myPlayerId) || (gameMode === 'online-gm' && !myPlayerId ? {id: 'gm', name: 'Game Master'} : null);
-        if (!sender) return;
+    useEffect(() => {
+        if (turnStarted.current) return;
+        turnStarted.current = true;
         
-        const message: ChatMessage = { senderId: sender.id, senderName: sender.name, text, timestamp: Date.now() };
-        dispatch({type: 'ADD_CHAT_MESSAGE', payload: message});
-    }
+        const playerForLog = (gameMode === 'online-player') 
+            ? gameData.players.find(p => p.id === myPlayerId) || { lastSeenLogIndex: 0 }
+            : currentPlayer;
+        
+        const lastSeenIndex = playerForLog?.lastSeenLogIndex || 0;
+
+        let initialSceneState: SceneState = { backgroundUrl: null, cgUrl: null, sprites: {}, dialogue: null };
+        for(const log of gameData.storyLog.slice(0, lastSeenIndex)) {
+            initialSceneState = reduceScene(log, initialSceneState);
+        }
+        setBaseScene(initialSceneState);
+
+        const logsForCatchUp = gameData.storyLog.slice(lastSeenIndex);
+        if (logsForCatchUp.length > 0) {
+            setLogsToPlay(logsForCatchUp);
+            setPlaybackLogIndex(0);
+            setPlaybackState('playing');
+        } else {
+            setPlaybackState('idle');
+            setLogsToPlay([]);
+        }
+    }, [gameData.storyLog, currentPlayer, reduceScene, gameMode, myPlayerId, gameData.players]);
+    
+    useEffect(() => {
+        if (playbackState !== 'playing') return;
+
+        if (playbackLogIndex >= logsToPlay.length) {
+            setBaseScene(prev => {
+                let finalScene = {...prev};
+                logsToPlay.forEach(log => finalScene = reduceScene(log, finalScene));
+                return {...finalScene, dialogue: null};
+            });
+            setPlaybackState('idle');
+            setLogsToPlay([]);
+            return;
+        }
+        
+        let sceneUpdate = { ...baseScene };
+        let dialogueToShow = null;
+
+        for (let i = playbackLogIndex; i < logsToPlay.length; i++) {
+            const log = logsToPlay[i];
+            
+            if (log.type === 'dialogue') {
+                const char = gameData.characters.find(c => c.id === log.characterId);
+                dialogueToShow = { characterName: char?.name || 'Unknown', text: log.text };
+                break;
+            } else if (log.type === 'choice_selection') {
+                const player = gameData.players.find(p => p.id === log.playerId);
+                dialogueToShow = { characterName: player?.name || 'A player', text: `Chose: "${log.choice.text}"` };
+                break;
+            } else if (log.type === 'choice') {
+                break;
+            }
+            sceneUpdate = reduceScene(log, sceneUpdate);
+        }
+        setBaseScene({ ...sceneUpdate, dialogue: dialogueToShow });
+
+    }, [playbackState, playbackLogIndex, logsToPlay, gameData.characters, gameData.players, reduceScene, baseScene]);
+
+    const handlePlaybackAdvance = () => {
+        if (playbackState !== 'playing' || playbackLogIndex >= logsToPlay.length) return;
+        
+        let nextIndex = playbackLogIndex;
+        for (let i = playbackLogIndex; i < logsToPlay.length; i++) {
+            const log = logsToPlay[i];
+            nextIndex = i;
+            if (log.type === 'dialogue' || log.type === 'choice' || log.type === 'choice_selection') {
+                break;
+            }
+        }
+        setPlaybackLogIndex(nextIndex + 1);
+    };
+
+    const canSendMessage = !isSpectatingGm && (gameData.players.length > 0 || gameMode === 'online-player');
+
+    const getSender = useCallback(() => {
+        if (gameMode === 'local') {
+            return { id: currentPlayer?.id, name: currentPlayer?.name };
+        }
+        if (myPlayerId) {
+            const me = gameData.players.find(p => p.id === myPlayerId);
+            return { id: me?.id, name: me?.name };
+        }
+        return { id: null, name: null };
+    }, [gameMode, currentPlayer, myPlayerId, gameData.players]);
+
+    const handleSendChatMessage = useCallback((messageText: string) => {
+        const sender = getSender();
+        if (!canSendMessage || !sender?.id || !sender?.name) return;
+        
+        const newMessage: ChatMessage = {
+            senderId: sender.id,
+            senderName: sender.name,
+            text: messageText,
+            timestamp: Date.now()
+        };
+
+        dispatch({ type: 'ADD_CHAT_MESSAGE', payload: newMessage });
+    }, [dispatch, canSendMessage, getSender]);
+
 
     return (
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-            <div className="lg:col-span-2 flex flex-col gap-4">
-                <Visuals scene={scene} characters={gameData.characters} assets={gameData.assets} />
-                <DialogueBox dialogue={scene.dialogue} />
-            </div>
-            <div className="bg-secondary p-2 rounded-lg flex flex-col gap-2 min-h-[50vh]">
-                <div className="flex border-b border-accent">
-                    <button onClick={() => setActiveTab('history')} className={`px-4 py-2 ${activeTab === 'history' ? 'text-highlight border-b-2 border-highlight' : 'text-light'}`}>History</button>
-                    <button onClick={() => setActiveTab('status')} className={`px-4 py-2 ${activeTab === 'status' ? 'text-highlight border-b-2 border-highlight' : 'text-light'}`}>Status</button>
+        <div>
+            <div className="flex flex-col md:flex-row gap-4">
+                <div className="w-full md:w-2/3">
+                    <Visuals 
+                      scene={combinedScene} 
+                      characters={gameData.characters} 
+                      assets={gameData.assets} 
+                      onClick={handlePlaybackAdvance}
+                      isPlayingBack={playbackState === 'playing'}
+                    />
                 </div>
-                <div className="flex-1 overflow-hidden">
-                    {activeTab === 'history' ? (
-                        <HistoryView log={gameData.storyLog} characters={gameData.characters} assets={gameData.assets} />
-                    ) : (
-                        <StatusView characters={gameData.characters} quests={gameData.quests} coins={gameData.coins} />
-                    )}
+                <div className="w-full md:w-1/3 bg-secondary p-4 rounded-lg flex flex-col h-[75vh]">
+                    <div className="flex border-b border-accent mb-2">
+                        <button onClick={() => setActiveSideTab('history')} className={`px-4 py-1 ${activeSideTab === 'history' ? 'text-highlight border-b-2 border-highlight' : 'text-light'}`}>History</button>
+                        <button onClick={() => setActiveSideTab('status')} className={`px-4 py-1 ${activeSideTab === 'status' ? 'text-highlight border-b-2 border-highlight' : 'text-light'}`}>Status & Quests</button>
+                    </div>
+                    {activeSideTab === 'history' && <HistoryLogContent gameData={gameData} />}
+                    {activeSideTab === 'status' && <StatusContent gameData={gameData} />}
                 </div>
-                {currentPlayer && canControl ? (
-                    isWaitingForChoice ? (
-                        <ChoiceView choices={lastLogEntry.choices} currentPlayer={currentPlayer} dispatch={dispatch} onEndTurn={onEndTurn} />
-                    ) : (
-                        <PlayerControls gameData={gameData} dispatch={dispatch} currentPlayer={currentPlayer} onEndTurn={onEndTurn} />
-                    )
-                ) : null}
-                 {!currentPlayer && !isGmSpectator && (
-                     <div className="text-center p-4">
-                        <p>Waiting for players...</p>
-                     </div>
-                 )}
             </div>
-            <ChatView 
+            {!isSpectatingGm && currentPlayer ? (
+              <InputController 
+                  dispatch={dispatch}
+                  gameData={gameData}
+                  onEndTurn={onEndTurn}
+                  isMyTurn={isMyTurn}
+                  currentPlayer={currentPlayer}
+                  currentPlayerIndex={currentPlayerIndex}
+                  onSceneChange={handleSceneChange}
+                  isPlayingBack={playbackState === 'playing'}
+              />
+            ) : (
+                <div className="bg-secondary p-4 rounded-lg mt-4 text-center text-gray-400">
+                    { isSpectatingGm ? "You are spectating as the Game Master." : "Waiting for players..."}
+                </div>
+            )}
+            <ChatView
                 chatLog={gameData.chatLog}
-                onSendMessage={handleSendMessage}
-                canSendMessage={canPlayerSendMessage}
+                onSendMessage={handleSendChatMessage}
+                canSendMessage={canSendMessage}
             />
         </div>
     );

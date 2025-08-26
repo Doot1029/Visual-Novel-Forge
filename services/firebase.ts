@@ -1,6 +1,6 @@
-import { initializeApp } from 'firebase/app';
-import { getDatabase } from 'firebase/database';
-import { getAuth, onAuthStateChanged, signInAnonymously } from 'firebase/auth';
+import firebase from 'firebase/compat/app';
+import 'firebase/compat/database';
+import 'firebase/compat/auth';
 
 // This is your web app's Firebase configuration, connected to your project.
 const firebaseConfig = {
@@ -15,10 +15,13 @@ const firebaseConfig = {
 };
 
 // Initialize Firebase
-const app = initializeApp(firebaseConfig);
+if (!firebase.apps.length) {
+    firebase.initializeApp(firebaseConfig);
+}
 
-export const db = getDatabase(app);
-export const auth = getAuth(app);
+
+export const db = firebase.database();
+export const auth = firebase.auth();
 
 let authPromise: Promise<void> | null = null;
 
@@ -33,7 +36,7 @@ export const signInAnonymouslyIfNeeded = (): Promise<void> => {
     authPromise = new Promise<void>((resolve, reject) => {
         // onAuthStateChanged returns a function to unsubscribe.
         // It is called immediately with the current state, and then again on any change.
-        const unsubscribe = onAuthStateChanged(auth, (user) => {
+        const unsubscribe = auth.onAuthStateChanged((user) => {
             if (user) {
                 // We have a user, so authentication is successful.
                 unsubscribe();
@@ -41,7 +44,7 @@ export const signInAnonymouslyIfNeeded = (): Promise<void> => {
             } else {
                 // No user is signed in; attempt to sign in anonymously.
                 // The listener will be called again once sign-in completes.
-                signInAnonymously(auth).catch((error) => {
+                auth.signInAnonymously().catch((error) => {
                     unsubscribe(); // Clean up on failure.
                     console.error("Error signing in anonymously:", error);
                     alert("Could not connect to game services. Please check your internet connection and refresh the page to try again.");

@@ -30,27 +30,30 @@ const CharacterEditor: React.FC<CharacterEditorProps> = ({ char, allSprites, upd
             updateCharacter({ ...char, bio: randomBio });
         }
     };
+    
+    const handleStatChange = (statName: keyof Character['stats'], value: string) => {
+        const newStats = { ...char.stats, [statName]: Math.max(0, parseInt(value) || 0) };
+        updateCharacter({ ...char, stats: newStats });
+    };
 
     return (
         <div className="bg-accent p-4 rounded-lg space-y-3 relative">
             <button data-id={char.id} onClick={onDeleteCharacter} className="absolute top-2 right-2 text-red-500 hover:text-red-400 p-1 rounded-full font-bold z-10">X</button>
-            <input value={char.name} onChange={e => updateCharacter({ ...char, name: e.target.value })} className="w-full p-2 bg-primary rounded-md font-bold" placeholder="Character Name" />
+            <div className="flex gap-4">
+                <input value={char.name} onChange={e => updateCharacter({ ...char, name: e.target.value })} className="flex-1 p-2 bg-primary rounded-md font-bold" placeholder="Character Name" />
+                <select value={char.status || 'active'} onChange={e => updateCharacter({ ...char, status: e.target.value as 'active' | 'defeated' })} className="p-2 bg-primary rounded-md">
+                    <option value="active">Active</option>
+                    <option value="defeated">Defeated</option>
+                </select>
+            </div>
             
-            <div className="grid grid-cols-2 gap-2">
+            <div className="grid grid-cols-1 gap-2">
                 <div>
                     <label className="text-xs text-gray-400">Health (HP)</label>
                     <div className="flex items-center gap-1">
-                    <input type="number" value={char.health} onChange={e => updateCharacter({ ...char, health: Math.max(0, parseInt(e.target.value) || 0) })} className="w-full p-1 text-sm bg-primary rounded-md" />
+                    <input type="number" value={char.health} onChange={e => updateCharacter({ ...char, health: parseInt(e.target.value) || 0 })} className="w-full p-1 text-sm bg-primary rounded-md" />
                     <span className="text-gray-400">/</span>
                     <input type="number" value={char.maxHealth} onChange={e => updateCharacter({ ...char, maxHealth: Math.max(1, parseInt(e.target.value) || 1) })} className="w-full p-1 text-sm bg-primary rounded-md" />
-                    </div>
-                </div>
-                <div>
-                    <label className="text-xs text-gray-400">Mana (MP)</label>
-                    <div className="flex items-center gap-1">
-                    <input type="number" value={char.mana} onChange={e => updateCharacter({ ...char, mana: Math.max(0, parseInt(e.target.value) || 0) })} className="w-full p-1 text-sm bg-primary rounded-md" />
-                     <span className="text-gray-400">/</span>
-                    <input type="number" value={char.maxMana} onChange={e => updateCharacter({ ...char, maxMana: Math.max(0, parseInt(e.target.value) || 0) })} className="w-full p-1 text-sm bg-primary rounded-md" />
                     </div>
                 </div>
             </div>
@@ -64,6 +67,18 @@ const CharacterEditor: React.FC<CharacterEditorProps> = ({ char, allSprites, upd
                     <button onClick={handleGenerateBio} className="text-xs px-2 py-1 bg-purple-600 hover:bg-purple-700 rounded-md">
                         Suggest Premade Bio
                     </button>
+                </div>
+            </div>
+
+            <div>
+                <h4 className="text-sm font-semibold mb-1">Stats</h4>
+                <div className="grid grid-cols-3 gap-2 text-sm">
+                    {(Object.keys(char.stats) as Array<keyof Character['stats']>).map((statName) => (
+                        <div key={statName}>
+                            <label className="capitalize text-xs text-gray-400">{statName}</label>
+                            <input type="number" value={char.stats[statName]} onChange={e => handleStatChange(statName, e.target.value)} className="w-full p-1 bg-primary rounded-md" />
+                        </div>
+                    ))}
                 </div>
             </div>
             

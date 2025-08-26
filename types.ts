@@ -7,6 +7,7 @@ export interface Player {
   name: string;
   lastSeenLogIndex: number;
   isWaitingForApproval?: boolean;
+  coins: number;
 }
 
 export type AssetType = 'background' | 'characterSprite' | 'cg';
@@ -33,6 +34,15 @@ export interface Quest {
   }
 }
 
+export interface CharacterStats {
+    strength: number;
+    dexterity: number;
+    constitution: number;
+    intelligence: number;
+    wisdom: number;
+    charisma: number;
+}
+
 export interface Character {
   id: string;
   name: string;
@@ -40,8 +50,8 @@ export interface Character {
   spriteAssetIds: string[];
   health: number;
   maxHealth: number;
-  mana: number;
-  maxMana: number;
+  status: 'active' | 'defeated';
+  stats: CharacterStats;
 }
 
 export interface DialogueLogEntry {
@@ -55,7 +65,6 @@ export interface Choice {
   effects?: {
     coins?: number;
     hp?: number;
-    mp?: number;
     targetCharacterId?: string;
   };
 }
@@ -124,12 +133,12 @@ export interface ChatMessage {
 }
 
 export interface GameData {
+  title: string;
   gmRules: string;
   assets: Asset[];
   characters: Character[];
   storyLog: StoryLogEntry[];
   quests: Quest[];
-  coins: number;
   chatLog: ChatMessage[];
   lobbyChatLog: ChatMessage[];
   lobbyMusicUrl: string | null;
@@ -142,3 +151,12 @@ export interface GameData {
 }
 
 export type GameMode = 'local' | 'online-gm' | 'online-player';
+
+export interface SavedSession {
+    gameId: string;
+    title: string;
+    role: 'gm' | 'player';
+    myPlayerId?: string;
+    myPlayerName?: string;
+    lastAccessed: number;
+}

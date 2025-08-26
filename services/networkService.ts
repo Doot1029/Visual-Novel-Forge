@@ -1,4 +1,5 @@
-import { ref, onChildAdded, onValue, set, push, Unsubscribe, onDisconnect, onChildRemoved, remove } from 'firebase/database';
+import firebase from 'firebase/compat/app';
+import 'firebase/compat/database';
 import { GameData, Player, GamePhase, ChatMessage } from '../types';
 import { Action } from '../state/reducer';
 import { db } from './firebase';
@@ -22,11 +23,12 @@ let currentGameId: string | null = null;
 let messageHandler: ((message: NetworkMessage) => void) | null = null;
 
 // Keep track of Firebase listeners to detach them later
+type Unsubscribe = () => void;
 let stateListenerUnsubscribe: Unsubscribe | null = null;
 let musicListenerUnsubscribe: Unsubscribe | null = null;
 let actionsListenerUnsubscribe: Unsubscribe | null = null;
 let presenceListenerUnsubscribe: Unsubscribe | null = null;
-let onDisconnectRef: any = null;
+let onDisconnectRef: firebase.database.OnDisconnect | null = null;
 
 
 /**
@@ -47,14 +49,16 @@ export const createGameChannel = (gameId: string): void => {
     closeChannel(); // Ensure any previous listeners are cleared
     currentGameId = gameId;
 
-    const actionsPathRef = ref(db, `games/${gameId}/actions`);
+    const actionsPathRef = db.ref(`games/${gameId}/actions`);
     
     // Listen for new actions from players
-    actionsListenerUnsubscribe = onChildAdded(actionsPathRef, (snapshot) => {
+    const listener = (snapshot: firebase.database.DataSnapshot) => {
         if (messageHandler && snapshot.exists()) {
             messageHandler(snapshot.val() as NetworkMessage);
         }
-    });
+    };
+    actionsPathRef.on('child_added', listener);
+    actionsListenerUnsubscribe = () => actionsPathRef.off('child_added', listener);
 };
 
 /**
@@ -65,8 +69,8 @@ export const joinGameChannel = (gameId: string): void => {
     closeChannel(); // Ensure any previous listeners are cleared
     currentGameId = gameId;
 
-    const statePathRef = ref(db, `games/${gameId}/state`);
-    const musicPathRef = ref(db, `games/${gameId}/music`);
+    const statePathRef = db.ref(`games/${gameId}/state`);
+    const musicPathRef = db.ref(`games/${gameId}/music`);
 
     let mainState: any = null;
     let musicData: any = null;
@@ -87,23 +91,27 @@ export const joinGameChannel = (gameId: string): void => {
     };
 
     // Listen for main state updates from the GM
-    stateListenerUnsubscribe = onValue(statePathRef, (snapshot) => {
+    const stateListener = (snapshot: firebase.database.DataSnapshot) => {
         const stateSyncPayload = snapshot.val();
         if (stateSyncPayload) {
             mainState = stateSyncPayload;
             combineAndDispatch();
         }
-    });
+    };
+    statePathRef.on('value', stateListener);
+    stateListenerUnsubscribe = () => statePathRef.off('value', stateListener);
 
     // Listen for music updates separately
-    musicListenerUnsubscribe = onValue(musicPathRef, (snapshot) => {
+    const musicListener = (snapshot: firebase.database.DataSnapshot) => {
         musicData = snapshot.val();
         // Only need to re-dispatch if mainState is already loaded.
         // Otherwise, the state listener will handle the combined dispatch.
         if (mainState) {
             combineAndDispatch();
         }
-    });
+    };
+    musicPathRef.on('value', musicListener);
+    musicListenerUnsubscribe = () => musicPathRef.off('value', musicListener);
 };
 
 /**
@@ -130,17 +138,17 @@ export const sendMessage = (message: NetworkMessage): void => {
         const { lobbyMusicUrl, ...restOfGameData } = gameData;
 
         // Write main state without music
-        const statePathRef = ref(db, `games/${currentGameId}/state`);
+        const statePathRef = db.ref(`games/${currentGameId}/state`);
         const mainStatePayload = { gameData: restOfGameData, ...restOfPayload };
-        set(statePathRef, mainStatePayload).catch(handleError);
+        statePathRef.set(mainStatePayload).catch(handleError);
 
         // Write music data separately
-        const musicPathRef = ref(db, `games/${currentGameId}/music`);
-        set(musicPathRef, { lobbyMusicUrl: lobbyMusicUrl || null }).catch(handleError);
+        const musicPathRef = db.ref(`games/${currentGameId}/music`);
+        musicPathRef.set({ lobbyMusicUrl: lobbyMusicUrl || null }).catch(handleError);
     } else {
         // Player is sending an action to the GM
-        const actionsPathRef = ref(db, `games/${currentGameId}/actions`);
-        push(actionsPathRef, message).catch(handleError);
+        const actionsPathRef = db.ref(`games/${currentGameId}/actions`);
+        actionsPathRef.push(message).catch(handleError);
     }
 };
 
@@ -151,12 +159,12 @@ export const sendMessage = (message: NetworkMessage): void => {
  * @param playerName The player's name.
  */
 export const setupPresence = (gameId: string, playerId: string, playerName: string): void => {
-    const presencePathRef = ref(db, `games/${gameId}/presence/${playerId}`);
+    const presencePathRef = db.ref(`games/${gameId}/presence/${playerId}`);
     // Set up the onDisconnect handler
-    onDisconnectRef = onDisconnect(presencePathRef);
+    onDisconnectRef = presencePathRef.onDisconnect();
     onDisconnectRef.remove();
     // Set the initial presence data
-    set(presencePathRef, { name: playerName });
+    presencePathRef.set({ name: playerName });
 };
 
 /**
@@ -170,8 +178,8 @@ export const removePresence = (gameId: string, playerId: string): void => {
         onDisconnectRef.cancel();
         onDisconnectRef = null;
     }
-    const presencePathRef = ref(db, `games/${gameId}/presence/${playerId}`);
-    remove(presencePathRef);
+    const presencePathRef = db.ref(`games/${gameId}/presence/${playerId}`);
+    presencePathRef.remove();
 };
 
 /**
@@ -180,20 +188,31 @@ export const removePresence = (gameId: string, playerId: string): void => {
  * @param onLeave Callback function when a player leaves.
  */
 export const onPresenceChange = (gameId: string, onLeave: (id: string, name: string) => void) => {
-    const presencePathRef = ref(db, `games/${gameId}/presence`);
+    const presencePathRef = db.ref(`games/${gameId}/presence`);
     
     if (presenceListenerUnsubscribe) {
         presenceListenerUnsubscribe();
     }
     
-    presenceListenerUnsubscribe = onChildRemoved(presencePathRef, (snapshot) => {
+    const listener = (snapshot: firebase.database.DataSnapshot) => {
         const playerId = snapshot.key;
         const playerData = snapshot.val();
         if (playerId && playerData?.name) {
             onLeave(playerId, playerData.name);
         }
-    });
+    };
+    presencePathRef.on('child_removed', listener);
+    presenceListenerUnsubscribe = () => presencePathRef.off('child_removed', listener);
 };
+
+/**
+ * Permanently deletes an entire game session from the database (GM only).
+ * @param gameId The game ID to delete.
+ */
+export const deleteGame = (gameId: string): Promise<void> => {
+    const gameRef = db.ref(`games/${gameId}`);
+    return gameRef.remove();
+}
 
 
 /**

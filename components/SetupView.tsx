@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { GameData, Player, AssetType, Character, Asset } from '../types';
+import { GameData, Player, AssetType, Character, Asset, SavedSession } from '../types';
 import { Action } from '../state/reducer';
 import { MAX_PLAYERS } from '../constants';
 import PremadeAssetBrowser from './PremadeAssetBrowser';
@@ -16,9 +16,55 @@ interface SetupViewProps {
   onStartGameForEveryone: () => void;
   onSendLobbyMessage: (message: string) => void;
   onPreviewAsset: (asset: Asset) => void;
+  // Dashboard props
+  savedSessions: SavedSession[];
+  onRejoinSession: (session: SavedSession) => void;
+  onLeaveSession: (gameId: string) => void;
+  onDeleteSession: (gameId: string) => void;
 }
 
-const GameSetup: React.FC<Omit<SetupViewProps, 'onHostOnlineGame' | 'onJoinOnlineGame' | 'gameId' | 'onStartGameForEveryone' | 'onStartLocalGame' | 'onSendLobbyMessage'> & { onStartGame: (options?: { asPlayer: boolean, playerName: string }) => void, isOnline: boolean }> = ({ gameData, dispatch, onStartGame, isOnline, onPreviewAsset }) => {
+interface GameDashboardProps {
+    sessions: SavedSession[];
+    onRejoin: (session: SavedSession) => void;
+    onLeave: (gameId: string) => void;
+    onDelete: (gameId: string) => void;
+}
+
+const GameDashboard: React.FC<GameDashboardProps> = ({ sessions, onRejoin, onLeave, onDelete }) => {
+    if (sessions.length === 0) {
+        return null;
+    }
+
+    const sortedSessions = [...sessions].sort((a, b) => b.lastAccessed - a.lastAccessed);
+
+    return (
+        <div className="mt-8">
+            <h3 className="text-2xl font-bold text-highlight mb-4 text-center">Your Game Sessions</h3>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                {sortedSessions.map(session => (
+                    <div key={session.gameId} className="bg-accent p-4 rounded-lg flex flex-col justify-between">
+                        <div>
+                            <h4 className="font-bold text-lg truncate">{session.title}</h4>
+                            <p className="text-sm text-gray-400">Role: <span className="capitalize font-semibold">{session.role}</span></p>
+                            <p className="text-xs text-gray-500">ID: {session.gameId}</p>
+                        </div>
+                        <div className="flex gap-2 mt-4">
+                            <button onClick={() => onRejoin(session)} className="flex-1 px-3 py-2 bg-blue-600 hover:bg-blue-700 rounded-md text-sm font-bold">Rejoin</button>
+                            {session.role === 'player' ? (
+                                <button onClick={() => onLeave(session.gameId)} className="px-3 py-2 bg-red-700 hover:bg-red-800 rounded-md text-sm">Leave</button>
+                            ) : (
+                                <button onClick={() => onDelete(session.gameId)} className="px-3 py-2 bg-red-700 hover:bg-red-800 rounded-md text-sm">Delete</button>
+                            )}
+                        </div>
+                    </div>
+                ))}
+            </div>
+        </div>
+    );
+};
+
+
+const GameSetup: React.FC<Omit<SetupViewProps, 'onHostOnlineGame' | 'onJoinOnlineGame' | 'gameId' | 'onStartGameForEveryone' | 'onStartLocalGame' | 'onSendLobbyMessage' | 'savedSessions' | 'onRejoinSession' | 'onLeaveSession' | 'onDeleteSession'> & { onStartGame: (options?: { asPlayer: boolean, playerName: string }) => void, isOnline: boolean }> = ({ gameData, dispatch, onStartGame, isOnline, onPreviewAsset }) => {
     const [activeTab, setActiveTab] = useState('game');
     const [assetUrl, setAssetUrl] = useState('');
     const [assetName, setAssetName] = useState('');
@@ -37,7 +83,7 @@ const GameSetup: React.FC<Omit<SetupViewProps, 'onHostOnlineGame' | 'onJoinOnlin
     }
 
     const addPlayer = () => {
-        const newPlayer: Player = { id: `p-${Date.now()}`, name: `Player ${players.length + 1}`, lastSeenLogIndex: 0 };
+        const newPlayer: Player = { id: `p-${Date.now()}`, name: `Player ${players.length + 1}`, lastSeenLogIndex: 0, coins: 0 };
         dispatch({ type: 'ADD_PLAYER', payload: newPlayer });
     }
     const removePlayer = (id: string) => {
@@ -131,6 +177,10 @@ const GameSetup: React.FC<Omit<SetupViewProps, 'onHostOnlineGame' | 'onJoinOnlin
 
             {activeTab === 'game' && (
                 <div className="space-y-6">
+                    <div>
+                        <label className="text-lg font-semibold text-highlight">Game Title</label>
+                        <input type="text" value={gameData.title} onChange={e => dispatch({type: 'UPDATE_TITLE', payload: e.target.value})} className="w-full mt-1 p-2 bg-accent rounded-md focus:ring-2 focus:ring-highlight outline-none" />
+                    </div>
                     <div>
                         <label className="text-lg font-semibold text-highlight">Game Master Rules</label>
                         <textarea value={gameData.gmRules} onChange={e => dispatch({type: 'UPDATE_GM_RULES', payload: e.target.value})} className="w-full mt-1 p-2 bg-accent rounded-md h-24 focus:ring-2 focus:ring-highlight outline-none" />
@@ -450,6 +500,12 @@ const SetupView: React.FC<SetupViewProps> = (props) => {
                                 Join Online Game
                             </button>
                          </div>
+                         <GameDashboard 
+                            sessions={props.savedSessions}
+                            onRejoin={props.onRejoinSession}
+                            onLeave={props.onLeaveSession}
+                            onDelete={props.onDeleteSession}
+                         />
                     </div>
                 );
         }

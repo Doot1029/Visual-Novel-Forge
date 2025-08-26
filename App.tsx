@@ -1,6 +1,5 @@
-
 import React, { useState, useReducer, useCallback, useEffect, useRef } from 'react';
-import { GameData, Player, GamePhase, Character, Asset, GameMode, ChatMessage } from './types';
+import { GameData, Player, GamePhase, Character, Asset, GameMode, ChatMessage, SavedSession } from './types';
 import { gameReducer, Action } from './state/reducer';
 import { INITIAL_GAME_DATA } from './constants';
 import SetupView from './components/SetupView';
@@ -16,6 +15,29 @@ import { signInAnonymouslyIfNeeded } from './services/firebase';
 interface ImagePreviewModalProps {
   asset: Asset | null;
   onClose: () => void;
+}
+
+const useLocalStorage = <T,>(key: string, initialValue: T): [T, (value: T | ((val: T) => T)) => void] => {
+    const [storedValue, setStoredValue] = useState<T>(() => {
+        try {
+            const item = window.localStorage.getItem(key);
+            return item ? JSON.parse(item) : initialValue;
+        } catch (error) {
+            console.error(error);
+            return initialValue;
+        }
+    });
+
+    const setValue = (value: T | ((val: T) => T)) => {
+        try {
+            const valueToStore = value instanceof Function ? value(storedValue) : value;
+            setStoredValue(valueToStore);
+            window.localStorage.setItem(key, JSON.stringify(valueToStore));
+        } catch (error) {
+            console.error(error);
+        }
+    };
+    return [storedValue, setValue];
 }
 
 const ImagePreviewModal: React.FC<ImagePreviewModalProps> = ({ asset, onClose }) => {
@@ -45,7 +67,7 @@ const ImagePreviewModal: React.FC<ImagePreviewModalProps> = ({ asset, onClose })
 
 
 const App: React.FC = () => {
-  const [gameData, dispatch] = useReducer(gameReducer, INITIAL_GAME_DATA);
+  const [gameData, dispatch] = useReducer(gameReducer, { ...INITIAL_GAME_DATA, players: [] });
   const [gamePhase, setGamePhase] = useState<GamePhase>('setup');
   const [currentPlayerIndex, setCurrentPlayerIndex] = useState(0);
   const [isGmMenuOpen, setIsGmMenuOpen] = useState(false);
@@ -66,6 +88,8 @@ const App: React.FC = () => {
   const [previewAsset, setPreviewAsset] = useState<Asset | null>(null);
   const { players } = gameData;
 
+  const [savedSessions, setSavedSessions] = useLocalStorage<SavedSession[]>('vns-sessions', []);
+
   useEffect(() => {
     signInAnonymouslyIfNeeded()
       .then(() => setIsAuthenticating(false))
@@ -79,7 +103,7 @@ const App: React.FC = () => {
 
     network.onMessage((message) => {
       if (message.type === 'PLAYER_JOIN_REQUEST') {
-          const newPlayer: Player = { id: message.payload.id, name: message.payload.name, lastSeenLogIndex: 0 };
+          const newPlayer: Player = { id: message.payload.id, name: message.payload.name, lastSeenLogIndex: 0, coins: 0 };
           dispatch({ type: 'ADD_PLAYER', payload: newPlayer });
           if (gamePhase === 'play') {
             dispatch({
@@ -152,12 +176,17 @@ const App: React.FC = () => {
         dispatch({ type: 'SET_GAME_DATA', payload: gameData });
         setCurrentPlayerIndex(currentPlayerIndex || 0);
         setGamePhase(gamePhase);
+
+        const currentSession = savedSessions.find(s => s.gameId === gameId);
+        if (currentSession && currentSession.title !== gameData.title) {
+            setSavedSessions(prev => prev.map(s => s.gameId === gameId ? {...s, title: gameData.title} : s));
+        }
       }
     };
     
     network.onMessage(handleMessage);
 
-  }, [gameMode]);
+  }, [gameMode, gameId, savedSessions, setSavedSessions]);
   
   useEffect(() => {
     if (gameMode === 'online-player' && gamePhase === 'play' && !hasSeenRules) {
@@ -232,10 +261,11 @@ const App: React.FC = () => {
     setGameId(newGameId);
     setGameMode('online-gm');
 
+    let hostPlayerId: string | null = null;
     if (asPlayer && playerName.trim()) {
-        const hostPlayerId = sessionId;
+        hostPlayerId = sessionId;
         setMyPlayerId(hostPlayerId);
-        const hostPlayer: Player = { id: hostPlayerId, name: playerName.trim(), lastSeenLogIndex: 0 };
+        const hostPlayer: Player = { id: hostPlayerId, name: playerName.trim(), lastSeenLogIndex: 0, coins: 0 };
         dispatch({type: 'SET_PLAYERS', payload: [hostPlayer]});
         network.setupPresence(newGameId, hostPlayerId, playerName.trim());
     } else {
@@ -244,6 +274,16 @@ const App: React.FC = () => {
     }
 
     network.createGameChannel(newGameId);
+    
+    const newSession: SavedSession = {
+        gameId: newGameId,
+        title: gameData.title,
+        role: 'gm',
+        myPlayerId: hostPlayerId,
+        myPlayerName: playerName.trim(),
+        lastAccessed: Date.now(),
+    };
+    setSavedSessions(prev => [newSession, ...prev.filter(s => s.gameId !== newGameId)]);
   };
 
   const joinOnlineGameAsPlayer = (id: string, name: string) => {
@@ -257,6 +297,16 @@ const App: React.FC = () => {
     setConnectionStatus('connecting');
     network.sendMessage({ type: 'PLAYER_JOIN_REQUEST', payload: { name, id: playerId } });
 
+    const newSession: SavedSession = {
+        gameId: id,
+        title: `Joining "${id}"...`,
+        role: 'player',
+        myPlayerId: playerId,
+        myPlayerName: name,
+        lastAccessed: Date.now(),
+    };
+    setSavedSessions(prev => [newSession, ...prev.filter(s => s.gameId !== id)]);
+
     if (connectionTimeoutRef.current) {
       clearTimeout(connectionTimeoutRef.current);
     }
@@ -264,6 +314,7 @@ const App: React.FC = () => {
     connectionTimeoutRef.current = window.setTimeout(() => {
         setConnectionStatus('failed');
         network.removePresence(id, playerId);
+        // Do not remove session from dashboard, user might want to retry
     }, 20000);
   };
 
@@ -367,6 +418,36 @@ const App: React.FC = () => {
       }
   };
 
+    const handleRejoinSession = (session: SavedSession) => {
+        if (session.role === 'gm') {
+            alert("Rejoining as GM is not yet supported. Please start a new game or have a player invite you.");
+            return;
+        }
+        if (session.role === 'player' && session.myPlayerId && session.myPlayerName) {
+            joinOnlineGameAsPlayer(session.gameId, session.myPlayerName);
+        }
+    };
+
+    const handleLeaveSession = (gameIdToRemove: string) => {
+        if (window.confirm("Are you sure you want to leave this game? This will only remove it from your dashboard.")) {
+            setSavedSessions(prev => prev.filter(s => s.gameId !== gameIdToRemove));
+        }
+    };
+    
+    const handleDeleteSession = (gameIdToDelete: string) => {
+        if (window.confirm("Are you the Game Master. Are you sure you want to PERMANENTLY delete this game for ALL players? This cannot be undone.")) {
+            network.deleteGame(gameIdToDelete)
+                .then(() => {
+                    alert(`Game ${gameIdToDelete} has been deleted.`);
+                    setSavedSessions(prev => prev.filter(s => s.gameId !== gameIdToDelete));
+                })
+                .catch(error => {
+                    alert(`Failed to delete game: ${error.message}`);
+                    console.error("Failed to delete game:", error);
+                });
+        }
+    };
+
   const returnToSetup = () => {
     window.location.reload();
   }
@@ -435,6 +516,10 @@ const App: React.FC = () => {
             onStartGameForEveryone={startGame}
             onSendLobbyMessage={handleSendLobbyChatMessage}
             onPreviewAsset={setPreviewAsset}
+            savedSessions={savedSessions}
+            onRejoinSession={handleRejoinSession}
+            onLeaveSession={handleLeaveSession}
+            onDeleteSession={handleDeleteSession}
           />
         );
       case 'play':
@@ -453,6 +538,7 @@ const App: React.FC = () => {
             gameData={gameData}
             dispatch={onlineDispatch}
             currentPlayer={players[currentPlayerIndex]}
+            currentPlayerIndex={currentPlayerIndex}
             onEndTurn={handleEndTurn}
             gameMode={gameMode}
             myPlayerId={myPlayerId}

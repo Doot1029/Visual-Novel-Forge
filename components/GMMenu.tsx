@@ -29,24 +29,32 @@ const VIDEO_QUALITY_BITRATES: Record<string, number> = {
     ultra: 8_000_000, // 8 Mbps
 };
 
-// --- Canvas Drawing Helpers for Video Export ---
 function wrapText(context: CanvasRenderingContext2D, text: string, x: number, y: number, maxWidth: number, lineHeight: number) {
     const words = text.split(' ');
     let line = '';
+    const lines = [];
+
     for (let n = 0; n < words.length; n++) {
         const testLine = line + words[n] + ' ';
         const metrics = context.measureText(testLine);
         const testWidth = metrics.width;
         if (testWidth > maxWidth && n > 0) {
-            context.fillText(line, x, y);
+            lines.push(line);
             line = words[n] + ' ';
-            y += lineHeight;
         } else {
             line = testLine;
         }
     }
-    context.fillText(line, x, y);
+    lines.push(line);
+
+    const initialY = y;
+    for (const l of lines) {
+        context.fillText(l.trim(), x, y);
+        y += lineHeight;
+    }
+    return y - initialY; // Return the total height of the wrapped text
 }
+
 
 async function drawSceneOnCanvas(
     ctx: CanvasRenderingContext2D,
@@ -114,6 +122,7 @@ async function drawSceneOnCanvas(
         
         ctx.fillStyle = '#e94560';
         ctx.font = 'bold 28px Inter, sans-serif';
+        ctx.textAlign = 'left';
         ctx.textBaseline = 'top';
         ctx.fillText(scene.dialogue.characterName, x, yName);
 
@@ -135,26 +144,22 @@ const GMMenu: React.FC<GMMenuProps> = ({ isOpen, onClose, gameData, dispatch, ga
     const [timingBaseSeconds, setTimingBaseSeconds] = useState(2.5);
     const [timingSecondsPerWord, setTimingSecondsPerWord] = useState(0.25);
     const [videoQuality, setVideoQuality] = useState('high');
-    const { players } = gameData;
-
-    // Quest Form State
     const [newQuestTitle, setNewQuestTitle] = useState('');
     const [newQuestDesc, setNewQuestDesc] = useState('');
     const [newQuestAssignee, setNewQuestAssignee] = useState<string>('null');
     const [newQuestCoins, setNewQuestCoins] = useState(0);
+    const { players } = gameData;
     
-    // Player Management
-    const handlePlayerNameChange = (id: string, name: string) => {
+    const handlePlayerUpdate = (id: string, key: keyof Player, value: string | number) => {
         const player = players.find(p => p.id === id);
         if (player) {
-            dispatch({ type: 'UPDATE_PLAYER', payload: {...player, name} });
+            dispatch({ type: 'UPDATE_PLAYER', payload: {...player, [key]: value} });
         }
     }
+
     const addPlayer = () => {
-        if (players.length < MAX_PLAYERS) {
-            const newPlayer: Player = { id: `p-${Date.now()}`, name: `Player ${players.length + 1}`, lastSeenLogIndex: 0 };
-            dispatch({ type: 'ADD_PLAYER', payload: newPlayer });
-        }
+        const newPlayer: Player = { id: `p-${Date.now()}`, name: `Player ${players.length + 1}`, lastSeenLogIndex: 0, coins: 0 };
+        dispatch({ type: 'ADD_PLAYER', payload: newPlayer });
     }
     const removePlayer = (id: string) => {
         const playerToRemove = players.find(p => p.id === id);
@@ -174,7 +179,6 @@ const GMMenu: React.FC<GMMenuProps> = ({ isOpen, onClose, gameData, dispatch, ga
         }
     }
 
-    // Asset Management
     const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>, type: AssetType) => {
         const file = event.target.files?.[0];
         if (file) {
@@ -209,7 +213,6 @@ const GMMenu: React.FC<GMMenuProps> = ({ isOpen, onClose, gameData, dispatch, ga
         dispatch({ type: 'BATCH_ADD_ASSETS', payload: assets.map(a => ({ ...a, isPublished: true })) });
     };
 
-    // Character Management
     const addNewCharacter = () => {
         dispatch({ type: 'ADD_CHARACTER', payload: { name: 'New Character', bio: '', spriteAssetIds: [] } });
     }
@@ -225,7 +228,6 @@ const GMMenu: React.FC<GMMenuProps> = ({ isOpen, onClose, gameData, dispatch, ga
         }
     };
     
-    // Game State Management
     const handleAddQuest = () => {
         if (!newQuestTitle.trim()) {
             alert("Quest title cannot be empty.");
@@ -242,7 +244,6 @@ const GMMenu: React.FC<GMMenuProps> = ({ isOpen, onClose, gameData, dispatch, ga
         dispatch({ type: 'ADD_QUEST', payload: questPayload });
         dispatch({ type: 'ADD_LOG_ENTRY', payload: {type: 'quest_status', text: `New Quest Added: ${newQuestTitle}`}});
         
-        // Reset form
         setNewQuestTitle('');
         setNewQuestDesc('');
         setNewQuestAssignee('null');
@@ -253,8 +254,6 @@ const GMMenu: React.FC<GMMenuProps> = ({ isOpen, onClose, gameData, dispatch, ga
         dispatch({type: 'UPDATE_QUEST', payload: {id, status}});
     }
 
-
-    // --- Video Export Logic ---
     const findAssetUrl = useCallback((id: string | null) => gameData.assets.find(a => a.id === id)?.url || null, [gameData.assets]);
 
     const reduceScene = useCallback((log: StoryLogEntry, currentScene: SceneState): SceneState => {
@@ -324,7 +323,7 @@ const GMMenu: React.FC<GMMenuProps> = ({ isOpen, onClose, gameData, dispatch, ga
                 const videoUrl = URL.createObjectURL(videoBlob);
                 const a = document.createElement('a');
                 a.href = videoUrl;
-                a.download = 'visual-novel-replay.mp4';
+                a.download = `${gameData.title.replace(/[^a-z0-9]/gi, '_')}.webm`;
                 document.body.appendChild(a);
                 a.click();
                 window.URL.revokeObjectURL(videoUrl);
@@ -357,8 +356,8 @@ const GMMenu: React.FC<GMMenuProps> = ({ isOpen, onClose, gameData, dispatch, ga
                         dialogueToShow = { characterName: char?.name || 'Narrator', text: log.text };
                         dialogueText = log.text;
                     } else if (log.type === 'choice_selection') {
-                        const char = gameData.characters.find(c => c.id === log.characterId);
-                        const fullText = `${char?.name || 'A player'} chose: "${log.choice.text}"`;
+                        const player = gameData.players.find(p => p.id === log.playerId);
+                        const fullText = `${player?.name || 'A player'} chose: "${log.choice.text}"`;
                         dialogueToShow = { characterName: 'Narrator', text: fullText };
                         dialogueText = fullText;
                     }
@@ -367,20 +366,93 @@ const GMMenu: React.FC<GMMenuProps> = ({ isOpen, onClose, gameData, dispatch, ga
                     
                     const wordCount = dialogueText.split(/\s+/).filter(Boolean).length;
                     const durationMs = (timingBaseSeconds + wordCount * timingSecondsPerWord) * 1000;
-                    await new Promise(res => setTimeout(res, Math.max(500, durationMs))); // Ensure a minimum duration
+                    await new Promise(res => setTimeout(res, Math.max(500, durationMs)));
                 }
                 
-                setExportProgress(10 + (i / gameData.storyLog.length) * 85);
+                setExportProgress(10 + (i / gameData.storyLog.length) * 80);
             }
 
-            if (sceneChangesSinceLastPause) {
+            if (sceneChangesSinceLastPause || gameData.storyLog.length > 0) {
                 await drawSceneOnCanvas(ctx, canvas, { ...currentScene, dialogue: null }, loadedImages);
-                await new Promise(res => setTimeout(res, 1000));
+                await new Promise(res => setTimeout(res, 2000));
             }
             
-            const endScene = { ...currentScene, dialogue: { characterName: "The End", text: "Thank you for playing!" } };
-            await drawSceneOnCanvas(ctx, canvas, endScene, loadedImages);
-            await new Promise(res => setTimeout(res, 3000));
+            setExportProgress(90);
+            
+            // --- Credits Sequence ---
+            const credits = [
+                { type: 'spacer', size: 60 },
+                { type: 'header', text: 'Game Master' },
+                { type: 'item', text: 'The Host' },
+                { type: 'spacer', size: 40 },
+                { type: 'header', text: 'Players' },
+                ...(gameData.players.length > 0 ? gameData.players.map(p => ({ type: 'item', text: p.name })) : [{ type: 'item', text: 'No players'}]),
+                { type: 'spacer', size: 40 },
+                { type: 'header', text: 'Characters' },
+                ...gameData.characters.filter(c => c.id !== 'narrator' && c.status === 'active').map(c => ({ type: 'item', text: c.name })),
+                { type: 'spacer', size: 80 },
+                { type: 'footer', text: 'This video was brought to you by a multiplayer roleplaying visual novel game called "Visual Novel Forge".' },
+                { type: 'spacer', size: 40 },
+                { type: 'ender', text: 'Thanks for watching!' },
+            ];
+            
+            let totalHeight = 0;
+            credits.forEach(c => {
+                 switch (c.type) {
+                    case 'spacer': totalHeight += c.size; break;
+                    case 'header': totalHeight += 40; break;
+                    case 'item': totalHeight += 30; break;
+                    case 'footer': totalHeight += 50; break;
+                    case 'ender': totalHeight += 80; break;
+                }
+            });
+
+            const scrollDuration = (totalHeight + canvas.height) / 80; // pixels per second
+            const frames = Math.floor(scrollDuration * 24);
+            const startY = canvas.height;
+            const endY = -totalHeight;
+
+            for (let i = 0; i <= frames; i++) {
+                const progress = i / frames;
+                const currentY = startY + (endY - startY) * progress;
+
+                ctx.fillStyle = '#1a1a2e';
+                ctx.fillRect(0, 0, canvas.width, canvas.height);
+                
+                let y = currentY;
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'top';
+
+                for (const credit of credits) {
+                    if (credit.type === 'spacer') {
+                        y += credit.size;
+                    } else {
+                        if (credit.type === 'header') {
+                            ctx.font = 'bold 32px Inter, sans-serif';
+                            ctx.fillStyle = '#e94560'; // highlight
+                            ctx.fillText(credit.text, canvas.width / 2, y);
+                            y += 40;
+                        } else if (credit.type === 'item') {
+                            ctx.font = '24px Inter, sans-serif';
+                            ctx.fillStyle = '#dcdcdc'; // light
+                            ctx.fillText(credit.text, canvas.width / 2, y);
+                            y += 30;
+                        } else if (credit.type === 'footer') {
+                            ctx.font = 'italic 18px Inter, sans-serif';
+                            ctx.fillStyle = '#dcdcdc'; // light
+                            const height = wrapText(ctx, credit.text, canvas.width / 2, y, canvas.width * 0.8, 24);
+                            y += height + 20;
+                        } else if (credit.type === 'ender') {
+                            ctx.font = 'bold 40px Inter, sans-serif';
+                            ctx.fillStyle = '#e94560'; // highlight
+                            ctx.fillText(credit.text, canvas.width / 2, y);
+                            y += 80;
+                        }
+                    }
+                }
+                setExportProgress(90 + (progress * 10));
+                await new Promise(res => setTimeout(res, 1000 / 24));
+            }
 
             recorder.stop();
         } catch(error) {
@@ -393,6 +465,8 @@ const GMMenu: React.FC<GMMenuProps> = ({ isOpen, onClose, gameData, dispatch, ga
 
     if (!isOpen) return null;
 
+    const approvals = gameData.pendingAssetApprovals || [];
+
     return (
         <div className="fixed inset-0 bg-primary bg-opacity-90 z-50 flex items-center justify-center p-4">
             <div className="bg-secondary rounded-lg shadow-2xl w-full max-w-4xl h-[90vh] flex flex-col relative border-2 border-accent">
@@ -404,6 +478,10 @@ const GMMenu: React.FC<GMMenuProps> = ({ isOpen, onClose, gameData, dispatch, ga
                     <button onClick={() => setActiveTab('characters')} className={`px-4 py-2 ${activeTab === 'characters' ? 'text-highlight border-b-2 border-highlight' : 'text-light'}`}>Characters</button>
                     <button onClick={() => setActiveTab('assets')} className={`px-4 py-2 ${activeTab === 'assets' ? 'text-highlight border-b-2 border-highlight' : 'text-light'}`}>Assets</button>
                     <button onClick={() => setActiveTab('players')} className={`px-4 py-2 ${activeTab === 'players' ? 'text-highlight border-b-2 border-highlight' : 'text-light'}`}>Players</button>
+                     <button onClick={() => setActiveTab('approvals')} className={`px-4 py-2 relative ${activeTab === 'approvals' ? 'text-highlight border-b-2 border-highlight' : 'text-light'}`}>
+                        Approvals
+                        {approvals.length > 0 && <span className="absolute top-1 right-1 bg-red-600 text-white text-xs font-bold rounded-full h-4 w-4 flex items-center justify-center">{approvals.length}</span>}
+                    </button>
                     <button onClick={() => setActiveTab('export')} className={`px-4 py-2 ${activeTab === 'export' ? 'text-highlight border-b-2 border-highlight' : 'text-light'}`}>Export</button>
                 </div>
 
@@ -431,7 +509,6 @@ const GMMenu: React.FC<GMMenuProps> = ({ isOpen, onClose, gameData, dispatch, ga
                                     <p className="text-xs text-gray-400 mt-1">Share this ID with players so they can join.</p>
                                 </div>
                             )}
-                            {/* Quest Management */}
                             <div>
                                 <h3 className="text-xl font-semibold text-highlight mb-2">Quests</h3>
                                 <div className="bg-accent p-4 rounded-lg space-y-3 mb-4">
@@ -456,34 +533,6 @@ const GMMenu: React.FC<GMMenuProps> = ({ isOpen, onClose, gameData, dispatch, ga
                                             <button onClick={() => handleUpdateQuestStatus(quest.id, 'completed')} className="px-2 py-1 text-xs bg-green-600 hover:bg-green-700 rounded">Complete</button>
                                         </div>
                                     ))}
-                                </div>
-                            </div>
-
-                            {/* Character Stats & Inventory */}
-                            <div>
-                                <h3 className="text-xl font-semibold text-highlight mb-2">Characters Stats</h3>
-                                {gameData.characters.filter(c => c.id !== 'narrator').map(char => (
-                                    <details key={char.id} className="bg-accent p-3 rounded-lg mb-2">
-                                        <summary className="font-bold cursor-pointer">{char.name}</summary>
-                                        <div className="grid grid-cols-2 gap-2 mt-2">
-                                            <div>
-                                                <label className="text-xs">Health</label>
-                                                <input type="number" value={char.health} onChange={e => updateCharacter({...char, health: Math.min(parseInt(e.target.value) || 0, char.maxHealth)})} className="w-full p-1 bg-primary rounded-md"/>
-                                            </div>
-                                             <div>
-                                                <label className="text-xs">Mana</label>
-                                                <input type="number" value={char.mana} onChange={e => updateCharacter({...char, mana: Math.min(parseInt(e.target.value) || 0, char.maxMana)})} className="w-full p-1 bg-primary rounded-md"/>
-                                            </div>
-                                        </div>
-                                    </details>
-                                ))}
-                            </div>
-                            
-                            {/* Party Coins */}
-                            <div>
-                                <h3 className="text-xl font-semibold text-highlight mb-2">Party Coins</h3>
-                                 <div className="flex items-center gap-2 bg-accent p-2 rounded-lg">
-                                    <input type="number" value={gameData.coins} onChange={e => dispatch({type: 'SET_COINS', payload: parseInt(e.target.value) || 0})} className="w-full p-2 bg-primary rounded-md"/>
                                 </div>
                             </div>
                         </div>
@@ -561,7 +610,7 @@ const GMMenu: React.FC<GMMenuProps> = ({ isOpen, onClose, gameData, dispatch, ga
                             <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-4">
                                 {gameData.assets.map(asset => (
                                     <div key={asset.id} className="bg-accent p-2 rounded-lg relative">
-                                        <img src={asset.url} alt={asset.name} className="w-full h-32 object-cover rounded-md mb-2" />
+                                        <img src={asset.url} alt={asset.name} className="w-full h-32 object-cover rounded-md mb-2 cursor-pointer" onClick={() => onPreviewAsset(asset)} />
                                         <p className="text-sm truncate" title={asset.name}>{asset.name}</p>
                                         <p className="text-xs text-gray-400 capitalize">{asset.type.replace('Sprite', ' Sprite')}</p>
                                     </div>
@@ -589,12 +638,48 @@ const GMMenu: React.FC<GMMenuProps> = ({ isOpen, onClose, gameData, dispatch, ga
                             <div className="space-y-2">
                             {players.map(player => (
                                 <div key={player.id} className="flex items-center space-x-2 bg-accent p-2 rounded">
-                                    <input type="text" value={player.name} onChange={e => handlePlayerNameChange(player.id, e.target.value)} className="p-2 bg-primary rounded-md flex-grow" placeholder="Player Name"/>
+                                    <input type="text" value={player.name} onChange={e => handlePlayerUpdate(player.id, 'name', e.target.value)} className="p-2 bg-primary rounded-md flex-grow" placeholder="Player Name"/>
+                                    <input type="number" value={player.coins || 0} onChange={e => handlePlayerUpdate(player.id, 'coins', parseInt(e.target.value) || 0)} className="w-24 p-2 bg-primary rounded-md" placeholder="Coins"/>
                                     <button onClick={() => removePlayer(player.id)} className="text-red-500 hover:text-red-400 p-2 rounded-full font-bold">X</button>
                                 </div>
                             ))}
                             </div>
                             <button onClick={addPlayer} disabled={players.length >= MAX_PLAYERS} className="mt-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 rounded-md disabled:bg-gray-500">Add Player</button>
+                        </div>
+                    )}
+                    {activeTab === 'approvals' && (
+                        <div>
+                            <h3 className="text-lg font-semibold text-highlight mb-2">Pending Asset Approvals ({approvals.length})</h3>
+                             {approvals.length === 0 ? (
+                                <p className="text-gray-400 italic">No assets waiting for approval.</p>
+                             ) : (
+                                <div className="space-y-3">
+                                {approvals.map(approval => {
+                                    const asset = gameData.assets.find(a => a.id === approval.assetId);
+                                    const player = gameData.players.find(p => p.id === approval.submittingPlayerId);
+                                    const character = gameData.characters.find(c => c.id === approval.characterIdToAssign);
+                                    if (!asset) return null;
+                                    return (
+                                        <div key={asset.id} className="bg-accent p-3 rounded-lg flex items-center gap-4">
+                                            <img src={asset.url} alt={asset.name} className="w-16 h-16 object-cover rounded-md cursor-pointer" onClick={() => onPreviewAsset(asset)} />
+                                            <div className="flex-1">
+                                                <p className="font-bold">{asset.name}</p>
+                                                <p className="text-xs text-gray-300">
+                                                    Submitted by: <span className="font-semibold">{player?.name || 'Unknown'}</span>
+                                                </p>
+                                                 <p className="text-xs text-gray-300">
+                                                    For Character: <span className="font-semibold">{character?.name || 'Unknown'}</span>
+                                                </p>
+                                            </div>
+                                            <div className="flex flex-col gap-2">
+                                                <button onClick={() => dispatch({type: 'APPROVE_ASSET', payload: approval})} className="px-3 py-1 bg-green-600 hover:bg-green-700 rounded-md text-sm">Approve</button>
+                                                <button onClick={() => dispatch({type: 'REJECT_ASSET', payload: approval})} className="px-3 py-1 bg-red-600 hover:bg-red-700 rounded-md text-sm">Reject</button>
+                                            </div>
+                                        </div>
+                                    )
+                                })}
+                                </div>
+                             )}
                         </div>
                     )}
                     {activeTab === 'export' && (
@@ -653,7 +738,7 @@ const GMMenu: React.FC<GMMenuProps> = ({ isOpen, onClose, gameData, dispatch, ga
                             </div>
                             
                             <button onClick={handleExportVideo} disabled={isExporting} className="px-6 py-3 bg-purple-600 hover:bg-purple-700 text-white font-bold rounded-md transition-colors disabled:bg-gray-600">
-                                {isExporting ? `Exporting... ${Math.round(exportProgress)}%` : 'Export Game as MP4'}
+                                {isExporting ? `Exporting... ${Math.round(exportProgress)}%` : 'Export Game as Video'}
                             </button>
                              {isExporting && (
                                 <div className="mt-4">

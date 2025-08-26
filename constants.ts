@@ -7,21 +7,27 @@ export const NARRATOR_CHARACTER: Character = {
   spriteAssetIds: [],
   health: 999,
   maxHealth: 999,
-  mana: 999,
-  maxMana: 999,
+  status: 'active',
+  stats: {
+    strength: 10,
+    dexterity: 10,
+    constitution: 10,
+    intelligence: 10,
+    wisdom: 10,
+    charisma: 10,
+  },
 };
 
-export const INITIAL_GAME_DATA: GameData = {
+export const INITIAL_GAME_DATA: Omit<GameData, 'players'> = {
+  title: 'Untitled Adventure',
   gmRules: '1. Be respectful to other players.\n2. No NSFW content.\n3. The Game Master\'s decisions are final.\n4. Have fun!',
   assets: [],
   characters: [NARRATOR_CHARACTER],
   storyLog: [],
   quests: [],
-  coins: 0,
   chatLog: [],
   lobbyChatLog: [],
   lobbyMusicUrl: null,
-  players: [],
   pendingAssetApprovals: [],
 };
 
