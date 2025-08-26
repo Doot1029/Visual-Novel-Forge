@@ -117,9 +117,34 @@ const App: React.FC = () => {
             colno: event.colno,
         });
     };
+
+    const handleRejection = (event: PromiseRejectionEvent) => {
+        event.preventDefault();
+        const reason = event.reason;
+        let message = 'Unknown asynchronous error';
+        let filename = 'N/A';
+        
+        if (reason instanceof Error) {
+            message = reason.message;
+            filename = reason.stack?.split('\n')[1] || 'N/A'; // Attempt to get file info
+        } else if (typeof reason === 'string') {
+            message = reason;
+        }
+
+        setFatalError({
+            message: `Unhandled Promise Rejection: ${message}`,
+            filename,
+            lineno: 0,
+            colno: 0,
+        });
+    };
+
     window.addEventListener('error', handleError);
+    window.addEventListener('unhandledrejection', handleRejection);
+
     return () => {
         window.removeEventListener('error', handleError);
+        window.removeEventListener('unhandledrejection', handleRejection);
     };
   }, []);
 
