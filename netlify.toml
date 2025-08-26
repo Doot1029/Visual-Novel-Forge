@@ -1,0 +1,11 @@
+[build]
+  # This tells Netlify you don't have a build step
+  command = ""
+  # This tells Netlify to serve files from the main folder
+  publish = "."
+
+# This rule is essential for single-page applications like yours
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200
