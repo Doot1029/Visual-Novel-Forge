@@ -486,8 +486,8 @@ const gameReducer = (state, action) => {
             lobbyMusicUrl: action.payload,
         };
     case 'ADD_PLAYER': {
-        if (state.players.length >= MAX_PLAYERS) return state;
-        const newPlayer = { ...action.payload, coins: 0 };
+        if (state.players.length >= MAX_PLAYERS || state.players.find(p => p.id === action.payload.id)) return state;
+        const newPlayer = { ...action.payload, coins: action.payload.coins || 0 };
         return { ...state, players: [...state.players, newPlayer] };
     }
     case 'UPDATE_PLAYER': {
@@ -543,8 +543,8 @@ const gameReducer = (state, action) => {
     case 'SET_GAME_DATA': {
         const payload = action.payload;
         return {
-            ...INITIAL_GAME_DATA,
-            ...payload,
+            title: payload.title || INITIAL_GAME_DATA.title,
+            gmRules: payload.gmRules ?? INITIAL_GAME_DATA.gmRules,
             assets: payload.assets || [],
             characters: payload.characters || [],
             storyLog: payload.storyLog || [],
@@ -571,6 +571,8 @@ const network = (() => {
   let actionsListenerUnsubscribe = null;
   let presenceListenerUnsubscribe = null;
   let onDisconnectRef = null;
+  let typingListeners = {};
+  const typingDisconnectRefs = {};
 
   const onMessage = (handler) => {
       messageHandler = handler;
@@ -617,6 +619,12 @@ const network = (() => {
       };
 
       const stateListener = (snapshot) => {
+          if (!snapshot.exists()) { 
+              if (messageHandler) {
+                  messageHandler({ type: 'GAME_DELETED' });
+              }
+              return;
+          }
           const stateSyncPayload = snapshot.val();
           if (stateSyncPayload) {
               mainState = stateSyncPayload;
@@ -697,6 +705,62 @@ const network = (() => {
       presenceListenerUnsubscribe = () => presencePathRef.off('child_removed', listener);
   };
   
+    const setTypingStatus = (gameId, chatType, userId, userName, isTyping) => {
+        const typingRef = db.ref(`games/${gameId}/typing/${chatType}/${userId}`);
+        const chatDisconnectKey = `${chatType}-${userId}`;
+        if (isTyping) {
+            typingDisconnectRefs[chatDisconnectKey] = typingRef.onDisconnect();
+            typingDisconnectRefs[chatDisconnectKey].remove();
+            typingRef.set({ name: userName });
+        } else {
+            if (typingDisconnectRefs[chatDisconnectKey]) {
+                typingDisconnectRefs[chatDisconnectKey].cancel();
+                delete typingDisconnectRefs[chatDisconnectKey];
+            }
+            typingRef.remove();
+        }
+    };
+    
+    const onTypingStatusChange = (gameId, chatType, onTypingUsersChange) => {
+        const typingPathRef = db.ref(`games/${gameId}/typing/${chatType}`);
+        const typingUsers = {};
+
+        const update = () => onTypingUsersChange({ ...typingUsers });
+
+        const addedListener = (snapshot) => {
+            const userId = snapshot.key;
+            const userData = snapshot.val();
+            if (userId && userData?.name) {
+                typingUsers[userId] = userData.name;
+                update();
+            }
+        };
+
+        const removedListener = (snapshot) => {
+            const userId = snapshot.key;
+            if (userId) {
+                delete typingUsers[userId];
+                update();
+            }
+        };
+        
+        typingPathRef.on('child_added', addedListener);
+        typingPathRef.on('child_removed', removedListener);
+
+        typingListeners[chatType] = () => {
+            typingPathRef.off('child_added', addedListener);
+            typingPathRef.off('child_removed', removedListener);
+        };
+    };
+    
+    const fetchGameState = (gameId) => {
+        return db.ref(`games/${gameId}`).once('value').then(snapshot => snapshot.val());
+    }
+    
+    const createGameWithState = (gameId, state) => {
+        return db.ref(`games/${gameId}`).set(state);
+    }
+    
     const deleteGame = (gameId) => {
         const gameRef = db.ref(`games/${gameId}`);
         return gameRef.remove();
@@ -708,7 +772,12 @@ const network = (() => {
       if (musicListenerUnsubscribe) musicListenerUnsubscribe();
       if (actionsListenerUnsubscribe) actionsListenerUnsubscribe();
       if (presenceListenerUnsubscribe) presenceListenerUnsubscribe();
+      Object.values(typingListeners).forEach(unsub => unsub());
+      typingListeners = {};
+
       if (onDisconnectRef) onDisconnectRef.cancel();
+      Object.values(typingDisconnectRefs).forEach(ref => ref.cancel());
+
       
       stateListenerUnsubscribe = null;
       musicListenerUnsubscribe = null;
@@ -728,6 +797,10 @@ const network = (() => {
     onPresenceChange,
     closeChannel,
     deleteGame,
+    setTypingStatus,
+    onTypingStatusChange,
+    fetchGameState,
+    createGameWithState,
   };
 })();
 
@@ -821,17 +894,6 @@ const PremadeAssetBrowser = ({ onAddAsset, onAddAssetCollection, onPreviewAsset 
 
   return (
     <div>
-        <p className="text-xs text-gray-400 mb-2 text-right">
-            Want your assets featured?{' '}
-            <a 
-                href="https://discord.gg/fg45Qf7HV5" 
-                target="_blank" 
-                rel="noopener noreferrer"
-                className="text-highlight hover:underline"
-            >
-                Join our Discord!
-            </a>
-        </p>
       <div className="flex border-b border-accent mb-2">
         <button onClick={() => setCategory('backgrounds')} className={`px-3 py-1 text-sm ${category === 'backgrounds' ? 'text-highlight border-b-2 border-highlight' : 'text-light'}`}>Backgrounds</button>
         <button onClick={() => setCategory('characterSprites')} className={`px-3 py-1 text-sm ${category === 'characterSprites' ? 'text-highlight border-b-2 border-highlight' : 'text-light'}`}>Sprite Collections</button>
@@ -945,21 +1007,63 @@ const CharacterEditor = ({ char, allSprites, updateCharacter, onDeleteCharacter 
 }
 
 // --- FROM components/LobbyChat.tsx ---
-const LobbyChat = ({ chatLog, onSendMessage, canSendMessage, title }) => {
+const TypingIndicator = ({ typingUsers, myPlayerId }) => {
+    const activeTypers = Object.entries(typingUsers)
+        .filter(([id]) => id !== myPlayerId)
+        .map(([, name]) => name);
+
+    if (activeTypers.length === 0) {
+        return React.createElement('div', { className: "h-5" });
+    }
+
+    let text;
+    if (activeTypers.length === 1) {
+        text = `${activeTypers[0]} is typing...`;
+    } else if (activeTypers.length === 2) {
+        text = `${activeTypers[0]} and ${activeTypers[1]} are typing...`;
+    } else {
+        text = `Several people are typing...`;
+    }
+
+    return React.createElement('p', { className: "h-5 text-xs italic text-light" }, text);
+};
+
+
+const LobbyChat = ({ chatLog, onSendMessage, canSendMessage, title, typingUsers, myPlayerId, onTypingChange }) => {
     const [message, setMessage] = React.useState('');
     const chatBodyRef = React.useRef(null);
+    const typingTimeoutRef = React.useRef(null);
 
     React.useEffect(() => {
         if (chatBodyRef.current) {
             chatBodyRef.current.scrollTop = chatBodyRef.current.scrollHeight;
         }
     }, [chatLog]);
+    
+    const handleTyping = (e) => {
+        setMessage(e.target.value);
+        if (!canSendMessage) return;
+        
+        onTypingChange(true);
+
+        if (typingTimeoutRef.current) {
+            clearTimeout(typingTimeoutRef.current);
+        }
+        typingTimeoutRef.current = window.setTimeout(() => {
+            onTypingChange(false);
+        }, 2000);
+    };
+
 
     const handleSend = (e) => {
         e.preventDefault();
         if (message.trim() && canSendMessage) {
             onSendMessage(message.trim());
             setMessage('');
+             onTypingChange(false);
+            if (typingTimeoutRef.current) {
+                clearTimeout(typingTimeoutRef.current);
+            }
         }
     };
 
@@ -969,20 +1073,21 @@ const LobbyChat = ({ chatLog, onSendMessage, canSendMessage, title }) => {
             <div ref={chatBodyRef} className="flex-1 overflow-y-auto pr-2 space-y-2 mb-2 text-sm bg-primary p-2 rounded-md">
                 {(chatLog || []).map((chat, index) => (
                     <div key={`${chat.timestamp}-${index}`}>
-                        <span className="font-bold text-blue-400">{chat.senderName}: </span>
-                        <span>{chat.text}</span>
+                        <span className={`font-bold ${chat.senderId === 'system' ? 'text-yellow-400' : 'text-blue-400'}`}>{chat.senderName}: </span>
+                        <span className={chat.senderId === 'system' ? 'italic text-gray-400' : ''}>{chat.text}</span>
                     </div>
                 ))}
                 {(!chatLog || chatLog.length === 0) && (
                     <p className="text-center text-gray-400 italic">No messages yet. Say hi!</p>
                 )}
             </div>
+             <TypingIndicator typingUsers={typingUsers} myPlayerId={myPlayerId} />
             {canSendMessage ? (
-                <form onSubmit={handleSend} className="flex gap-2">
+                <form onSubmit={handleSend} className="flex gap-2 mt-1">
                     <input
                         type="text"
                         value={message}
-                        onChange={(e) => setMessage(e.target.value)}
+                        onChange={handleTyping}
                         placeholder="Type a message..."
                         className="flex-1 p-2 bg-primary rounded-md outline-none focus:ring-2 focus:ring-highlight"
                     />
@@ -996,12 +1101,35 @@ const LobbyChat = ({ chatLog, onSendMessage, canSendMessage, title }) => {
 };
 
 // --- FROM components/ChatView.tsx ---
-const ChatView = ({ chatLog, onSendMessage, canSendMessage }) => {
+const ChatTypingIndicator = ({ typingUsers, myPlayerId }) => {
+    const activeTypers = Object.entries(typingUsers)
+        .filter(([id]) => id !== myPlayerId)
+        .map(([, name]) => name);
+
+    if (activeTypers.length === 0) {
+        return React.createElement('div', { className: "h-5" });
+    }
+
+    let text;
+    if (activeTypers.length === 1) {
+        text = `${activeTypers[0]} is typing...`;
+    } else if (activeTypers.length === 2) {
+        text = `${activeTypers[0]} and ${activeTypers[1]} are typing...`;
+    } else {
+        text = `Several people are typing...`;
+    }
+
+    return React.createElement('p', { className: "h-5 px-3 text-xs italic text-light" }, text);
+};
+
+
+const ChatView = ({ chatLog, onSendMessage, canSendMessage, typingUsers, myPlayerId, onTypingChange }) => {
     const [isExpanded, setIsExpanded] = React.useState(false);
     const [message, setMessage] = React.useState('');
     const [unreadCount, setUnreadCount] = React.useState(0);
     const chatBodyRef = React.useRef(null);
     const prevChatLogLength = React.useRef(chatLog ? chatLog.length : 0);
+    const typingTimeoutRef = React.useRef(null);
 
     React.useEffect(() => {
         if (isExpanded && chatBodyRef.current) {
@@ -1017,18 +1145,35 @@ const ChatView = ({ chatLog, onSendMessage, canSendMessage }) => {
         }
         prevChatLogLength.current = currentLength;
     }, [chatLog, isExpanded]);
+    
+    const handleTyping = (e) => {
+        setMessage(e.target.value);
+        if (!canSendMessage) return;
 
+        onTypingChange(true);
+
+        if (typingTimeoutRef.current) {
+            clearTimeout(typingTimeoutRef.current);
+        }
+        typingTimeoutRef.current = window.setTimeout(() => {
+            onTypingChange(false);
+        }, 2000);
+    };
 
     const handleSend = (e) => {
         e.preventDefault();
         if (message.trim() && canSendMessage) {
             onSendMessage(message.trim());
             setMessage('');
+            onTypingChange(false);
+            if (typingTimeoutRef.current) {
+                clearTimeout(typingTimeoutRef.current);
+            }
         }
     };
     
     const handleToggleExpand = () => {
-        if (isExpanded) {
+        if (!isExpanded) {
             setUnreadCount(0);
         }
         setIsExpanded(!isExpanded);
@@ -1054,7 +1199,7 @@ const ChatView = ({ chatLog, onSendMessage, canSendMessage }) => {
                     <span>{isExpanded ? '▼' : '▲'}</span>
                 </button>
                 {isExpanded && (
-                    <div className="p-3 h-[calc(100%-3rem)] flex flex-col">
+                    <div className="p-3 pt-0 h-[calc(100%-3rem)] flex flex-col">
                         <div ref={chatBodyRef} className="flex-1 overflow-y-auto pr-2 space-y-2 mb-2 text-sm">
                             {(chatLog || []).map((chat, index) => (
                                 <React.Fragment key={`${chat.timestamp}-${index}`}>
@@ -1075,12 +1220,13 @@ const ChatView = ({ chatLog, onSendMessage, canSendMessage }) => {
                                 <p className="text-center text-gray-400 italic">No messages yet.</p>
                             )}
                         </div>
+                        <ChatTypingIndicator typingUsers={typingUsers} myPlayerId={myPlayerId} />
                         {canSendMessage ? (
-                            <form onSubmit={handleSend} className="flex gap-2">
+                            <form onSubmit={handleSend} className="flex gap-2 mt-1">
                                 <input 
                                     type="text"
                                     value={message}
-                                    onChange={(e) => setMessage(e.target.value)}
+                                    onChange={handleTyping}
                                     placeholder="Type a message..."
                                     className="flex-1 p-2 bg-primary rounded-md outline-none focus:ring-2 focus:ring-highlight"
                                 />
@@ -1604,6 +1750,9 @@ const SetupView = (props) => {
                         onSendMessage={props.onSendLobbyMessage}
                         canSendMessage={true}
                         title="Lobby Chat"
+                        typingUsers={props.typingUsers}
+                        myPlayerId={props.myPlayerId}
+                        onTypingChange={props.onTypingChange}
                     />
                 </div>
             </div>
@@ -1659,17 +1808,6 @@ const SetupView = (props) => {
                                 Join Online Game
                             </button>
                          </div>
-                         <p className="mt-8 text-gray-400">
-                            Want to see your own assets in the library?{' '}
-                            <a 
-                                href="https://discord.gg/fg45Qf7HV5" 
-                                target="_blank" 
-                                rel="noopener noreferrer"
-                                className="text-highlight hover:underline"
-                            >
-                                Join our Discord!
-                            </a>
-                         </p>
                          <GameDashboard 
                             sessions={props.savedSessions}
                             onRejoin={props.onRejoinSession}
@@ -1767,7 +1905,7 @@ const HistoryLogContent = ({ gameData }) => {
                         );
                         break;
                     case 'dice_roll':
-                        content = <p className="text-gray-400 italic">{getCharacter(log.characterId)?.name} rolled a d{log.sides} and got: <span className="font-bold text-white">{log.result}</span></p>
+                        content = <p className="text-gray-400 italic">{getCharacter(log.characterId)?.name} rolled a d{log.sides} and got: <span className="font-bold text-white">{log.result}</span></p>;
                         break;
                     case 'quest_status':
                         content = <p className="text-green-400 font-semibold">{log.text}</p>;
@@ -2058,15 +2196,6 @@ const InputController = ({ dispatch, gameData, onEndTurn, isMyTurn, currentPlaye
         );
     }
     
-    if (currentPlayer?.isWaitingForApproval) {
-        return (
-            <div className="bg-secondary p-4 rounded-lg mt-4 text-center">
-                <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-highlight mx-auto mb-3"></div>
-                <p className="font-bold text-xl text-yellow-400">Waiting for GM approval for your submitted asset...</p>
-            </div>
-        );
-    }
-    
     if (!speakingCharacter) return <div className="bg-secondary p-4 rounded-lg mt-4 text-center text-red-500">Error: Selected character not found or is defeated. Please select another.</div>;
     if (!currentPlayer) return <div className="bg-secondary p-4 rounded-lg mt-4 text-center text-red-500">Error: Current player not found.</div>;
 
@@ -2164,7 +2293,7 @@ const InputController = ({ dispatch, gameData, onEndTurn, isMyTurn, currentPlaye
     )
 }
 
-const GameView = ({ gameData, dispatch, currentPlayer, currentPlayerIndex, onEndTurn, gameMode, myPlayerId }) => {
+const GameView = ({ gameData, dispatch, currentPlayer, currentPlayerIndex, onEndTurn, gameMode, myPlayerId, typingUsers, onTypingChange }) => {
     const [baseScene, setBaseScene] = React.useState({ backgroundUrl: null, cgUrl: null, sprites: {}, dialogue: null });
     const [stagedScene, setStagedScene] = React.useState({});
     const [activeSideTab, setActiveSideTab] = React.useState('history');
@@ -2333,7 +2462,7 @@ const GameView = ({ gameData, dispatch, currentPlayer, currentPlayerIndex, onEnd
                     {activeSideTab === 'status' && <StatusContent gameData={gameData} />}
                 </div>
             </div>
-            {!isSpectatingGm ? (
+            {!isSpectatingGm && currentPlayer ? (
               <InputController 
                   dispatch={dispatch}
                   gameData={gameData}
@@ -2346,20 +2475,23 @@ const GameView = ({ gameData, dispatch, currentPlayer, currentPlayerIndex, onEnd
               />
             ) : (
                 <div className="bg-secondary p-4 rounded-lg mt-4 text-center text-gray-400">
-                    You are spectating as the Game Master.
+                    { isSpectatingGm ? "You are spectating as the Game Master." : "Waiting for players..."}
                 </div>
             )}
             <ChatView
                 chatLog={gameData.chatLog}
                 onSendMessage={handleSendChatMessage}
                 canSendMessage={canSendMessage}
+                typingUsers={typingUsers}
+                myPlayerId={myPlayerId}
+                onTypingChange={onTypingChange}
             />
         </div>
     );
 };
 
 // --- FROM components/GMMenu.tsx ---
-const GMMenu = ({ isOpen, onClose, gameData, dispatch, gameId, onPreviewAsset }) => {
+const GMMenu = ({ isOpen, onClose, gameData, dispatch, gameId, onPreviewAsset, onKickPlayer }) => {
     const [activeTab, setActiveTab] = React.useState('game');
     const [assetUrl, setAssetUrl] = React.useState('');
     const [assetName, setAssetName] = React.useState('');
@@ -2488,26 +2620,15 @@ const GMMenu = ({ isOpen, onClose, gameData, dispatch, gameId, onPreviewAsset })
         }
     }
 
+    const handleKick = (player) => {
+        if (window.confirm(`Are you sure you want to kick ${player.name}? This will remove them from the game.`)) {
+            onKickPlayer(player.id);
+        }
+    };
+
     const addPlayer = () => {
         const newPlayer = { id: `p-${Date.now()}`, name: `Player ${players.length + 1}`, lastSeenLogIndex: 0 };
         dispatch({ type: 'ADD_PLAYER', payload: newPlayer });
-    }
-    const removePlayer = (id) => {
-        const playerToRemove = players.find(p => p.id === id);
-        const playerName = playerToRemove?.name || 'this player';
-        
-        if (window.confirm(`Are you sure you want to remove ${playerName}?`)) {
-            if (playerToRemove) {
-                dispatch({
-                    type: 'ADD_LOG_ENTRY',
-                    payload: {
-                        type: 'stat_change',
-                        text: `(${playerToRemove.name}) Has Left the Game!`
-                    }
-                });
-            }
-            dispatch({ type: 'REMOVE_PLAYER', payload: { id } });
-        }
     }
 
     const handleFileChange = (event, type) => {
@@ -2981,7 +3102,7 @@ const GMMenu = ({ isOpen, onClose, gameData, dispatch, gameId, onPreviewAsset })
                                 <div key={player.id} className="flex items-center space-x-2 bg-accent p-2 rounded">
                                     <input type="text" value={player.name} onChange={e => handlePlayerUpdate(player.id, 'name', e.target.value)} className="p-2 bg-primary rounded-md flex-grow" placeholder="Player Name"/>
                                     <input type="number" value={player.coins || 0} onChange={e => handlePlayerUpdate(player.id, 'coins', parseInt(e.target.value) || 0)} className="w-24 p-2 bg-primary rounded-md" placeholder="Coins"/>
-                                    <button onClick={() => removePlayer(player.id)} className="text-red-500 hover:text-red-400 p-2 rounded-full font-bold">X</button>
+                                    <button onClick={() => handleKick(player)} className="px-3 py-2 bg-red-700 hover:bg-red-800 rounded-md text-sm font-bold">Kick</button>
                                 </div>
                             ))}
                             </div>
@@ -3137,12 +3258,15 @@ const App = () => {
   const [sessionId] = React.useState(() => `session-${Date.now()}-${Math.random().toString(36).slice(2)}`);
   const connectionTimeoutRef = React.useRef(null);
   const audioRef = React.useRef(null);
+  const [isKicked, setIsKicked] = React.useState(false);
 
   const [isGmRulesModalOpen, setIsGmRulesModalOpen] = React.useState(false);
   const [isTutorialModalOpen, setIsTutorialModalOpen] = React.useState(false);
   const [hasSeenRules, setHasSeenRules] = React.useState(false);
   const [previewAsset, setPreviewAsset] = React.useState(null);
   const { players } = gameData;
+  const [lobbyTypingUsers, setLobbyTypingUsers] = React.useState({});
+  const [gameTypingUsers, setGameTypingUsers] = React.useState({});
 
   const [savedSessions, setSavedSessions] = useLocalStorage('vns-sessions', []);
 
@@ -3159,6 +3283,16 @@ const App = () => {
 
     network.onMessage((message) => {
       if (message.type === 'PLAYER_JOIN_REQUEST') {
+          if (gameData.players.some(p => p.name.toLowerCase() === message.payload.name.toLowerCase())) {
+              const logAction = { type: 'ADD_LOBBY_CHAT_MESSAGE', payload: {
+                  senderId: 'system',
+                  senderName: 'System',
+                  text: `'${message.payload.name}' tried to join, but the name is already in use. Join request rejected.`,
+                  timestamp: Date.now()
+              }};
+              dispatch(logAction);
+              return;
+          }
           const newPlayer = { id: message.payload.id, name: message.payload.name, lastSeenLogIndex: 0, coins: 0 };
           dispatch({ type: 'ADD_PLAYER', payload: newPlayer });
           if (gamePhase === 'play') {
@@ -3193,17 +3327,13 @@ const App = () => {
 
         const leavingPlayerIndex = gameData.players.findIndex(p => p.id === leavingPlayerId);
         dispatch({ type: 'REMOVE_PLAYER', payload: { id: leavingPlayerId } });
-        const newPlayerCount = gameData.players.length -1;
         
-        if (newPlayerCount > 0) {
-            if (leavingPlayerIndex < currentPlayerIndex) {
-                setCurrentPlayerIndex(prev => prev - 1);
-            } else {
-                setCurrentPlayerIndex(prev => prev % newPlayerCount);
-            }
-        } else {
-            setCurrentPlayerIndex(0);
-        }
+        setCurrentPlayerIndex(prev => {
+            const newPlayerCount = gameData.players.length - 1;
+            if (newPlayerCount <= 0) return 0;
+            if (leavingPlayerIndex < prev) return prev - 1;
+            return prev % newPlayerCount;
+        });
     });
 
   }, [gameMode, gameId, gameData.players, currentPlayerIndex, gamePhase]);
@@ -3217,7 +3347,7 @@ const App = () => {
   }, [gameMode, gameData, currentPlayerIndex, gamePhase]);
 
   React.useEffect(() => {
-    if (gameMode !== 'online-player') return;
+    if (gameMode !== 'online-player' || !gameId) return;
 
     const handleMessage = (message) => {
       if (message.type === 'GAME_STATE_SYNC') {
@@ -3228,21 +3358,40 @@ const App = () => {
 
         setConnectionStatus('connected');
         
-        const { gameData, currentPlayerIndex, gamePhase } = message.payload;
-        dispatch({ type: 'SET_GAME_DATA', payload: gameData });
-        setCurrentPlayerIndex(currentPlayerIndex || 0);
-        setGamePhase(gamePhase);
+        const { gameData: newGameData, currentPlayerIndex: newCurrentPlayerIndex, gamePhase: newGamePhase } = message.payload;
+        
+        if (myPlayerId && !newGameData.players.some(p => p.id === myPlayerId)) {
+            setIsKicked(true);
+            network.closeChannel();
+            return;
+        }
+
+        dispatch({ type: 'SET_GAME_DATA', payload: newGameData });
+        setCurrentPlayerIndex(newCurrentPlayerIndex || 0);
+        setGamePhase(newGamePhase);
 
         const currentSession = savedSessions.find(s => s.gameId === gameId);
-        if (currentSession && currentSession.title !== gameData.title) {
-            setSavedSessions(prev => prev.map(s => s.gameId === gameId ? {...s, title: gameData.title} : s));
+        if (currentSession && currentSession.title !== newGameData.title) {
+            setSavedSessions(prev => prev.map(s => s.gameId === gameId ? {...s, title: newGameData.title} : s));
         }
+      } else if (message.type === 'GAME_DELETED') {
+          alert("You have been disconnected. The Game ID may have been changed by the GM, or the game was deleted.");
+          handleLeaveSession(gameId, true);
+          window.location.reload();
+          return;
       }
     };
     
     network.onMessage(handleMessage);
 
-  }, [gameMode, gameId, savedSessions, setSavedSessions]);
+  }, [gameMode, gameId, savedSessions, setSavedSessions, myPlayerId]);
+  
+  React.useEffect(() => {
+      if (gameId && (gameMode === 'online-gm' || gameMode === 'online-player')) {
+          network.onTypingStatusChange(gameId, 'lobby', setLobbyTypingUsers);
+          network.onTypingStatusChange(gameId, 'in-game', setGameTypingUsers);
+      }
+  }, [gameId, gameMode]);
   
   React.useEffect(() => {
     if (gameMode === 'online-player' && gamePhase === 'play' && !hasSeenRules) {
@@ -3285,26 +3434,36 @@ const App = () => {
     }
   };
 
+    const getMyPlayerInfo = React.useCallback(() => {
+        if (gameMode === 'online-gm' && !myPlayerId) { 
+            return { id: 'gm-host', name: 'Game Master' };
+        }
+        if (myPlayerId) {
+            const me = gameData.players.find(p => p.id === myPlayerId);
+            return me ? { id: me.id, name: me.name } : null;
+        }
+        return null;
+    }, [gameMode, myPlayerId, gameData.players]);
+
     const handleSendLobbyChatMessage = (messageText) => {
-      const senderPlayer = players.find(p => p.id === myPlayerId);
-      const senderName = (gameMode === 'online-gm' && !myPlayerId) ? 'Game Master' : senderPlayer?.name;
-      const senderId = myPlayerId || 'gm-host';
+      const me = getMyPlayerInfo();
+      if (!me) return;
 
-      if (!senderName) return;
-
-      const message = {
-          senderId: senderId,
-          senderName: senderName,
-          text: messageText,
-          timestamp: Date.now()
-      };
+      const message = { senderId: me.id, senderName: me.name, text: messageText, timestamp: Date.now() };
       
       if (gameMode === 'online-player') {
           network.sendMessage({ type: 'LOBBY_CHAT_MESSAGE', payload: { message } });
       } else if (gameMode === 'online-gm') {
           dispatch({ type: 'ADD_LOBBY_CHAT_MESSAGE', payload: message });
       }
-  };
+    };
+    
+    const handleTypingChange = (chatType) => (isTyping) => {
+      if (!gameId) return;
+      const me = getMyPlayerInfo();
+      if (!me) return;
+      network.setTypingStatus(gameId, chatType, me.id, me.name, isTyping);
+    };
 
   const startLocalGame = async () => {
     setGameMode('local');
@@ -3473,34 +3632,97 @@ const App = () => {
       }
   };
 
-    const handleRejoinSession = (session) => {
+    const handleRejoinSession = async (session) => {
         if (session.role === 'gm') {
-            alert("Rejoining as GM is not yet supported. Please start a new game or have a player invite you.");
-            return;
-        }
-        if (session.role === 'player' && session.myPlayerId && session.myPlayerName) {
+            setIsLoading(true);
+            try {
+                const remoteState = await network.fetchGameState(session.gameId);
+                if (!remoteState) {
+                    alert("This game session could not be found. It may have been deleted.");
+                    handleDeleteSession(session.gameId, true);
+                    return;
+                }
+                
+                const { gameData: remoteGameData, currentPlayerIndex: remotePlayerIndex, gamePhase: remoteGamePhase } = remoteState.state;
+                
+                const finalGameData = { ...remoteGameData, lobbyMusicUrl: remoteState.music?.lobbyMusicUrl || null };
+                
+                dispatch({ type: 'SET_GAME_DATA', payload: finalGameData });
+                setCurrentPlayerIndex(remotePlayerIndex || 0);
+                setGamePhase(remoteGamePhase);
+
+                setGameId(session.gameId);
+                setGameMode('online-gm');
+                setMyPlayerId(session.myPlayerId || null);
+
+                network.createGameChannel(session.gameId);
+                if (session.myPlayerId && session.myPlayerName) {
+                    network.setupPresence(session.gameId, session.myPlayerId, session.myPlayerName);
+                }
+                
+                setSavedSessions(prev => prev.map(s => s.gameId === session.gameId ? {...s, lastAccessed: Date.now()} : s));
+
+            } catch (error) {
+                alert(`Error rejoining game: ${error instanceof Error ? error.message : "An unknown error occurred."}`);
+            } finally {
+                setIsLoading(false);
+            }
+
+        } else if (session.role === 'player' && session.myPlayerId && session.myPlayerName) {
             joinOnlineGameAsPlayer(session.gameId, session.myPlayerName);
         }
     };
 
-    const handleLeaveSession = (gameIdToRemove) => {
-        if (window.confirm("Are you sure you want to leave this game? This will only remove it from your dashboard.")) {
+    const handleLeaveSession = (gameIdToRemove, silent = false) => {
+        const performLeave = () => {
             setSavedSessions(prev => prev.filter(s => s.gameId !== gameIdToRemove));
+        };
+        if (silent) {
+            performLeave();
+        } else if (window.confirm("Are you sure you want to leave this game? This will only remove it from your dashboard.")) {
+            performLeave();
         }
     };
     
-    const handleDeleteSession = (gameIdToDelete) => {
-        if (window.confirm("Are you the Game Master. Are you sure you want to PERMANENTLY delete this game for ALL players? This cannot be undone.")) {
+    const handleDeleteSession = (gameIdToDelete, silent = false) => {
+        const performDelete = () => {
             network.deleteGame(gameIdToDelete)
                 .then(() => {
-                    alert(`Game ${gameIdToDelete} has been deleted.`);
+                    if (!silent) alert(`Game ${gameIdToDelete} has been deleted.`);
                     setSavedSessions(prev => prev.filter(s => s.gameId !== gameIdToDelete));
                 })
                 .catch(error => {
-                    alert(`Failed to delete game: ${error.message}`);
+                    if (!silent) alert(`Failed to delete game: ${error.message}`);
                     console.error("Failed to delete game:", error);
                 });
+        };
+
+        if (silent) {
+            performDelete();
+        } else if (window.confirm("Are you the Game Master. Are you sure you want to PERMANENTLY delete this game for ALL players? This cannot be undone.")) {
+            performDelete();
         }
+    };
+    
+    const handleKickPlayer = (playerIdToKick) => {
+        const playerToKick = gameData.players.find(p => p.id === playerIdToKick);
+        if (!playerToKick || gameMode !== 'online-gm') return;
+        
+        dispatch({
+            type: 'ADD_LOG_ENTRY',
+            payload: { type: 'stat_change', text: `${playerToKick.name} was kicked by the GM.` }
+        });
+        
+        const kickedPlayerIndex = gameData.players.findIndex(p => p.id === playerIdToKick);
+
+        dispatch({ type: 'REMOVE_PLAYER', payload: { id: playerIdToKick } });
+        
+        setCurrentPlayerIndex(prev => {
+            const newPlayerCount = gameData.players.length - 1;
+            if (newPlayerCount <= 0) return 0;
+            if (kickedPlayerIndex < prev) return prev - 1;
+            return prev % newPlayerCount;
+        });
     };
 
   const returnToSetup = () => {
@@ -3508,6 +3730,18 @@ const App = () => {
   }
 
   const renderGamePhase = () => {
+    if (isKicked) {
+        return (
+            <div className="bg-secondary p-8 rounded-lg text-center max-w-lg mx-auto">
+                 <h2 className="text-3xl font-bold text-red-400 mb-4">You have been kicked.</h2>
+                 <p className="mb-8 text-lg">You were removed from the game by the host.</p>
+                 <button onClick={() => window.location.reload()} className="px-6 py-3 bg-highlight text-white text-lg font-bold rounded-lg hover:bg-opacity-80">
+                  Return to Menu
+                </button>
+            </div>
+        );
+    }
+
     if (gameMode === 'online-player' && connectionStatus === 'connecting') {
         return (
             <div className="bg-secondary p-6 rounded-lg text-center">
@@ -3526,7 +3760,7 @@ const App = () => {
                 </svg>
                 <h2 className="text-3xl font-bold text-red-400 mb-4">Connection Failed</h2>
                 <p className="mb-4 text-lg">Could not connect to the game with ID: <span className="font-mono bg-primary px-2 py-1 rounded">{gameId}</span></p>
-                <p className="text-gray-300 mb-8">Please check the Game ID and your internet connection, and ensure the host is waiting for players in the lobby.</p>
+                <p className="text-gray-300 mb-8">Please check the Game ID and your internet connection. The host might be in-game, the lobby may be full, or your chosen name might be taken.</p>
                 <button onClick={() => window.location.reload()} className="px-6 py-3 bg-highlight text-white text-lg font-bold rounded-lg hover:bg-opacity-80 transition-transform hover:scale-105">
                   Back to Menu
                 </button>
@@ -3552,6 +3786,9 @@ const App = () => {
                         onSendMessage={handleSendLobbyChatMessage}
                         canSendMessage={true}
                         title="Lobby Chat"
+                        typingUsers={lobbyTypingUsers}
+                        myPlayerId={myPlayerId}
+                        onTypingChange={handleTypingChange('lobby')}
                     />
                 </div>
             </div>
@@ -3575,6 +3812,9 @@ const App = () => {
             onRejoinSession={handleRejoinSession}
             onLeaveSession={handleLeaveSession}
             onDeleteSession={handleDeleteSession}
+            typingUsers={lobbyTypingUsers}
+            myPlayerId={myPlayerId}
+            onTypingChange={handleTypingChange('lobby')}
           />
         );
       case 'play':
@@ -3596,7 +3836,9 @@ const App = () => {
             currentPlayerIndex,
             onEndTurn: handleEndTurn,
             gameMode: gameMode,
-            myPlayerId: myPlayerId
+            myPlayerId: myPlayerId,
+            typingUsers: gameTypingUsers,
+            onTypingChange: handleTypingChange('in-game')
           })
         );
     }
@@ -3623,7 +3865,7 @@ const App = () => {
             <div className="fixed inset-0 bg-primary bg-opacity-90 flex items-center justify-center z-50">
                 <div className="text-center">
                     <div className="animate-spin rounded-full h-16 w-16 border-t-2 border-b-2 border-highlight mx-auto mb-4"></div>
-                    <h2 className="text-2xl font-bold">Loading Assets...</h2>
+                    <h2 className="text-2xl font-bold">Loading...</h2>
                 </div>
             </div>
           )}
@@ -3667,6 +3909,7 @@ const App = () => {
                     dispatch={dispatch}
                     gameId={gameId}
                     onPreviewAsset={setPreviewAsset}
+                    onKickPlayer={handleKickPlayer}
                 />
               )}
           </div>
