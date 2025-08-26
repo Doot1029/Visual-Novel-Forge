@@ -151,7 +151,7 @@ const App: React.FC = () => {
   useEffect(() => {
     const checkVersion = async () => {
       try {
-        const response = await fetch('./version.json?cache_bust=' + new Date().getTime());
+        const response = await fetch('/version.json?cache_bust=' + new Date().getTime());
         if (!response.ok) {
           console.warn('Could not fetch version.json');
           return;
