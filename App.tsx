@@ -1,3 +1,4 @@
+
 import React, { useState, useReducer, useCallback, useEffect, useRef } from 'react';
 import { GameData, Player, GamePhase, Character, Asset, GameMode, ChatMessage, SavedSession } from './types';
 import { gameReducer, Action } from './state/reducer';
@@ -93,6 +94,57 @@ const App: React.FC = () => {
 
   const [savedSessions, setSavedSessions] = useLocalStorage<SavedSession[]>('vns-sessions', []);
 
+  const [appVersion, setAppVersion] = useState<string | null>(null);
+  const [newVersionAvailable, setNewVersionAvailable] = useState(false);
+  
+  const [fatalError, setFatalError] = useState<{ message: string; filename: string; lineno: number; colno: number } | null>(null);
+
+  useEffect(() => {
+    const handleError = (event: ErrorEvent) => {
+        if (event.message.includes("ResizeObserver")) {
+            console.warn("Ignored non-critical ResizeObserver error.");
+            return;
+        }
+        event.preventDefault();
+        setFatalError({
+            message: event.message,
+            filename: event.filename,
+            lineno: event.lineno,
+            colno: event.colno,
+        });
+    };
+    window.addEventListener('error', handleError);
+    return () => {
+        window.removeEventListener('error', handleError);
+    };
+  }, []);
+
+  useEffect(() => {
+    const checkVersion = async () => {
+      try {
+        const response = await fetch('./version.json?cache_bust=' + new Date().getTime());
+        if (!response.ok) {
+          console.warn('Could not fetch version.json');
+          return;
+        }
+        const data = await response.json();
+        
+        if (appVersion === null) {
+          setAppVersion(data.version);
+        } else if (appVersion !== data.version) {
+          setNewVersionAvailable(true);
+        }
+      } catch (error) {
+        console.error('Error checking for new version:', error);
+      }
+    };
+
+    checkVersion();
+    const intervalId = setInterval(checkVersion, 60000); 
+
+    return () => clearInterval(intervalId);
+  }, [appVersion]);
+
   useEffect(() => {
     signInAnonymouslyIfNeeded()
       .then(() => setIsAuthenticating(false))
@@ -151,7 +203,6 @@ const App: React.FC = () => {
         const leavingPlayerIndex = gameData.players.findIndex(p => p.id === leavingPlayerId);
         dispatch({ type: 'REMOVE_PLAYER', payload: { id: leavingPlayerId } });
         
-        // Use a functional update with the correct future player count.
         setCurrentPlayerIndex(prev => {
             const newPlayerCount = gameData.players.length - 1;
             if (newPlayerCount <= 0) return 0;
@@ -184,7 +235,6 @@ const App: React.FC = () => {
         
         const { gameData: newGameData, currentPlayerIndex: newCurrentPlayerIndex, gamePhase: newGamePhase } = message.payload;
         
-        // Check if I have been kicked
         if (myPlayerId && !newGameData.players.some(p => p.id === myPlayerId)) {
             setIsKicked(true);
             network.closeChannel();
@@ -260,7 +310,7 @@ const App: React.FC = () => {
   };
 
     const getMyPlayerInfo = useCallback(() => {
-        if (gameMode === 'online-gm' && !myPlayerId) { // GM is spectating
+        if (gameMode === 'online-gm' && !myPlayerId) {
             return { id: 'gm-host', name: 'Game Master' };
         }
         if (myPlayerId) {
@@ -470,7 +520,6 @@ const App: React.FC = () => {
                 
                 const { gameData: remoteGameData, currentPlayerIndex: remotePlayerIndex, gamePhase: remoteGamePhase } = remoteState.state;
                 
-                // Use a functional update to ensure we have the latest gameData from remote
                 const finalGameData = { ...remoteGameData, lobbyMusicUrl: remoteState.music?.lobbyMusicUrl || null };
                 
                 dispatch({ type: 'SET_GAME_DATA', payload: finalGameData });
@@ -570,70 +619,48 @@ const App: React.FC = () => {
     
     if (gameMode === 'online-player' && connectionStatus === 'connecting') {
         return (
-            <div className="bg-secondary p-6 rounded-lg text-center">
-                <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-highlight mx-auto mb-4"></div>
-                <h2 className="text-2xl text-highlight mb-4">Connecting to game...</h2>
-                <p>Game ID: {gameId}</p>
+            <div className="bg-secondary p-8 rounded-lg text-center max-w-lg mx-auto">
+                <div className="animate-spin rounded-full h-12 w-12 border-t-4 border-b-4 border-highlight mx-auto mb-6"></div>
+                <h2 className="text-3xl font-bold text-light mb-4">Connecting...</h2>
+                <p className="text-lg text-gray-400">Attempting to join game: <span className="font-mono text-highlight">{gameId}</span></p>
             </div>
-        )
+        );
     }
-
+    
     if (gameMode === 'online-player' && connectionStatus === 'failed') {
         return (
             <div className="bg-secondary p-8 rounded-lg text-center max-w-lg mx-auto">
-                <svg xmlns="http://www.w3.org/2000/svg" className="h-16 w-16 text-red-500 mx-auto mb-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                </svg>
-                <h2 className="text-3xl font-bold text-red-400 mb-4">Connection Failed</h2>
-                <p className="mb-4 text-lg">Could not connect to the game with ID: <span className="font-mono bg-primary px-2 py-1 rounded">{gameId}</span></p>
-                <p className="text-gray-300 mb-8">Please check the Game ID and your internet connection, and ensure the host is waiting for players in the lobby. Your chosen name might also be taken.</p>
-                <button onClick={() => window.location.reload()} className="px-6 py-3 bg-highlight text-white text-lg font-bold rounded-lg hover:bg-opacity-80 transition-transform hover:scale-105">
-                  Back to Menu
+                 <h2 className="text-3xl font-bold text-red-400 mb-4">Connection Failed</h2>
+                 <p className="mb-8 text-lg">Could not connect to the game. Please check the Game ID and your internet connection. The host may not be available.</p>
+                 <button onClick={() => window.location.reload()} className="px-6 py-3 bg-highlight text-white text-lg font-bold rounded-lg hover:bg-opacity-80">
+                  Return to Menu
                 </button>
-            </div>
-        )
-    }
-
-    if (gameMode === 'online-player' && gamePhase === 'setup') {
-        return (
-            <div className="bg-secondary p-8 rounded-lg grid md:grid-cols-2 gap-8 items-center">
-                <div className="text-center">
-                    <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-highlight mx-auto mb-4"></div>
-                    <h2 className="text-2xl font-bold text-highlight mb-4">Waiting for Host to Start...</h2>
-                    <p className="mb-4">You have successfully joined the game. The host can see you in the lobby.</p>
-                    <div className="bg-primary p-4 rounded-lg">
-                        <p className="text-lg text-gray-400 mb-2">Game ID:</p>
-                        <p className="text-2xl font-mono text-white">{gameId}</p>
-                    </div>
-                </div>
-                <div className="h-[50vh]">
-                    <LobbyChat
-                        chatLog={gameData.lobbyChatLog}
-                        onSendMessage={handleSendLobbyChatMessage}
-                        canSendMessage={true}
-                        title="Lobby Chat"
-                        typingUsers={lobbyTypingUsers}
-                        myPlayerId={myPlayerId}
-                        onTypingChange={handleTypingChange('lobby')}
-                    />
-                </div>
             </div>
         );
     }
 
-    switch(gamePhase) {
-      case 'setup':
+    if (isLoading) {
         return (
-          <SetupView
-            gameData={gameData}
-            dispatch={dispatch}
+            <div className="bg-secondary p-8 rounded-lg text-center max-w-lg mx-auto">
+                <div className="animate-spin rounded-full h-12 w-12 border-t-4 border-b-4 border-highlight mx-auto mb-6"></div>
+                <h2 className="text-3xl font-bold text-light mb-4">Loading Game...</h2>
+                <p className="text-lg text-gray-400">Pre-loading assets, please wait.</p>
+            </div>
+        );
+    }
+    
+    switch (gamePhase) {
+      case 'setup':
+        return <SetupView 
+            gameData={gameData} 
+            dispatch={dispatch} 
             onStartLocalGame={startLocalGame}
             onHostOnlineGame={hostOnlineGame}
             onJoinOnlineGame={joinOnlineGameAsPlayer}
             gameId={gameId}
             onStartGameForEveryone={startGame}
             onSendLobbyMessage={handleSendLobbyChatMessage}
-            onPreviewAsset={setPreviewAsset}
+            onPreviewAsset={(asset) => setPreviewAsset(asset)}
             savedSessions={savedSessions}
             onRejoinSession={handleRejoinSession}
             onLeaveSession={handleLeaveSession}
@@ -641,108 +668,111 @@ const App: React.FC = () => {
             typingUsers={lobbyTypingUsers}
             myPlayerId={myPlayerId}
             onTypingChange={handleTypingChange('lobby')}
-          />
-        );
+         />;
       case 'play':
-        if (players.length === 0 && gameMode !== 'online-gm') {
-            return (
-                <div className="text-center p-8 bg-secondary rounded-lg">
-                    <h2 className="text-2xl text-highlight mb-4">All players have left the game.</h2>
-                    <button onClick={returnToSetup} className="px-4 py-2 bg-accent hover:bg-highlight text-white rounded-md transition-colors">
-                      Return to Setup
-                    </button>
-                </div>
-            )
-        }
+        const currentPlayer = players[currentPlayerIndex];
         return (
-          <GameView 
-            gameData={gameData}
-            dispatch={onlineDispatch}
-            currentPlayer={players[currentPlayerIndex]}
-            currentPlayerIndex={currentPlayerIndex}
-            onEndTurn={handleEndTurn}
-            gameMode={gameMode}
-            myPlayerId={myPlayerId}
-            typingUsers={gameTypingUsers}
-            onTypingChange={handleTypingChange('in-game')}
-          />
+            <GameView
+                gameData={gameData}
+                dispatch={onlineDispatch}
+                currentPlayer={currentPlayer}
+                currentPlayerIndex={currentPlayerIndex}
+                onEndTurn={handleEndTurn}
+                gameMode={gameMode}
+                myPlayerId={myPlayerId}
+                typingUsers={gameTypingUsers}
+                onTypingChange={handleTypingChange('in-game')}
+            />
         );
+      default:
+        return <div>Unknown game phase</div>;
     }
-  }
+  };
+  
+  const isSpectatingGm = gameMode === 'online-gm' && !myPlayerId;
+  const canOpenGmMenu = gamePhase === 'play' && (gameMode === 'local' || gameMode === 'online-gm');
+  const canLeaveGame = gamePhase === 'play' && (
+      gameMode === 'local' || 
+      (gameMode === 'online-player' && myPlayerId) || 
+      (gameMode === 'online-gm' && myPlayerId)
+  );
 
   if (isAuthenticating) {
     return (
-        <div className="fixed inset-0 bg-primary flex items-center justify-center z-50">
-            <div className="text-center">
-                <div className="animate-spin rounded-full h-16 w-16 border-t-2 border-b-2 border-highlight mx-auto mb-4"></div>
-                <h2 className="text-2xl font-bold">Connecting to Game Services...</h2>
-            </div>
+        <div className="flex items-center justify-center h-screen">
+            <div className="animate-spin rounded-full h-16 w-16 border-t-4 border-b-4 border-highlight"></div>
         </div>
     );
   }
 
-  const isPlayerInGame = (gameMode === 'local' && players.length > 0) || (gameMode === 'online-player') || (gameMode === 'online-gm' && !!myPlayerId);
-
-
   return (
-      <div className="min-h-screen bg-primary text-light font-sans p-4 relative">
-          <audio ref={audioRef} />
-          {previewAsset && <ImagePreviewModal asset={previewAsset} onClose={() => setPreviewAsset(null)} />}
-          {isLoading && (
-            <div className="fixed inset-0 bg-primary bg-opacity-90 flex items-center justify-center z-50">
-                <div className="text-center">
-                    <div className="animate-spin rounded-full h-16 w-16 border-t-2 border-b-2 border-highlight mx-auto mb-4"></div>
-                    <h2 className="text-2xl font-bold">Loading...</h2>
+    <div className="container mx-auto p-4 relative">
+        {fatalError && (
+            <div className="fixed inset-0 bg-primary bg-opacity-95 z-[200] flex items-center justify-center p-4" aria-modal="true" role="alertdialog">
+                <div className="bg-secondary rounded-lg shadow-2xl w-full max-w-2xl flex flex-col border-2 border-red-500">
+                    <div className="flex justify-between items-center p-4 border-b border-red-500">
+                        <h2 className="text-2xl font-bold text-red-400">An Unexpected Error Occurred</h2>
+                    </div>
+                    <div className="p-6 overflow-y-auto max-h-[60vh]">
+                        <p className="text-light mb-4">The application has encountered a problem and cannot continue. Please refresh the page. The technical details below can help with debugging.</p>
+                        <pre className="bg-primary p-4 rounded-md text-sm text-red-300 whitespace-pre-wrap font-mono">
+                            {`Message: ${fatalError.message}\nFile: ${fatalError.filename.split('/').pop()}\nLine: ${fatalError.lineno}, Column: ${fatalError.colno}`}
+                        </pre>
+                    </div>
+                    <div className="p-4 border-t border-accent text-right">
+                        <button 
+                            onClick={() => window.location.reload()} 
+                            className="px-6 py-2 bg-highlight text-white font-bold rounded-lg hover:bg-opacity-80"
+                        >
+                            Refresh Page
+                        </button>
+                    </div>
                 </div>
             </div>
-          )}
-          <div className="w-full max-w-7xl mx-auto">
-              <header className="w-full flex justify-between items-center p-4 bg-secondary rounded-lg shadow-lg mb-4 border border-accent">
-                <h1 className="text-3xl font-bold text-highlight">Visual Novel Forge</h1>
-                <div className="flex items-center gap-4">
-                  {gamePhase === 'play' && (
-                    <>
-                      <button onClick={() => setIsTutorialModalOpen(true)} className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-md transition-colors">
-                        Tutorial
-                      </button>
-                      <button onClick={() => setIsGmRulesModalOpen(true)} className="px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-md transition-colors">
-                        GM Rules
-                      </button>
-                    </>
-                  )}
-                  {isPlayerInGame && gamePhase === 'play' && (
-                     <button onClick={handleLeaveGame} className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-md transition-colors relative z-10">
-                      Leave Game
-                    </button>
-                  )}
-                  {(gameMode === 'local' || gameMode === 'online-gm') && gamePhase === 'play' && (
-                    <button onClick={() => setIsGmMenuOpen(true)} className="px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-md transition-colors relative">
-                      GM Actions
-                      {gameData.pendingAssetApprovals.length > 0 && <span className="absolute -top-1 -right-1 bg-red-600 text-white text-xs font-bold rounded-full h-5 w-5 flex items-center justify-center animate-pulse">{gameData.pendingAssetApprovals.length}</span>}
-                    </button>
-                  )}
-                </div>
-              </header>
+        )}
+        {newVersionAvailable && (
+            <div className="fixed top-4 left-1/2 -translate-x-1/2 bg-highlight text-white p-3 rounded-lg text-center z-[200] shadow-lg flex items-center justify-center gap-4 animate-pulse">
+                <p className="font-semibold">A new version is available!</p>
+                <button 
+                  onClick={() => window.location.reload()}
+                  className="px-4 py-1 bg-white text-highlight font-bold rounded-lg hover:bg-opacity-90"
+                >
+                  Refresh Now
+                </button>
+            </div>
+        )}
+        <header className="text-center mb-6">
+            <h1 className="text-4xl font-bold text-highlight tracking-wider">{gameData.title}</h1>
+            <p className="text-lg text-gray-300">A Collaborative Storytelling Game</p>
+             <div className="absolute top-0 right-0 p-2 flex gap-2">
+                {canOpenGmMenu && <button onClick={() => setIsGmMenuOpen(true)} className="px-4 py-2 text-sm bg-accent hover:bg-opacity-75 rounded-md font-bold">GM Actions</button>}
+                {canLeaveGame && <button onClick={handleLeaveGame} className="px-4 py-2 text-sm bg-red-800 hover:bg-red-700 rounded-md font-bold">Leave Game</button>}
+                {gamePhase === 'play' && <button onClick={returnToSetup} className="px-4 py-2 text-sm bg-gray-700 hover:bg-gray-600 rounded-md font-bold">Return to Menu</button>}
+                <button onClick={() => setIsTutorialModalOpen(true)} className="px-4 py-2 text-sm bg-blue-600 hover:bg-blue-700 rounded-md font-bold">How to Play</button>
+            </div>
+        </header>
 
-              <main>
-                {renderGamePhase()}
-              </main>
+        <main>
+            {renderGamePhase()}
+        </main>
+        
+        {isGmRulesModalOpen && <GmRulesModal rules={gameData.gmRules} onClose={() => setIsGmRulesModalOpen(false)} />}
+        {isTutorialModalOpen && <TutorialModal onClose={() => setIsTutorialModalOpen(false)} />}
+        {previewAsset && <ImagePreviewModal asset={previewAsset} onClose={() => setPreviewAsset(null)} />}
 
-              {(gameMode === 'local' || gameMode === 'online-gm') && gamePhase === 'play' && (
-                <GMMenu
-                    isOpen={isGmMenuOpen}
-                    onClose={() => setIsGmMenuOpen(false)}
-                    gameData={gameData}
-                    dispatch={dispatch}
-                    gameId={gameId}
-                    onPreviewAsset={setPreviewAsset}
-                    onKickPlayer={handleKickPlayer}
-                />
-              )}
-          </div>
-          {isGmRulesModalOpen && <GmRulesModal rules={gameData.gmRules} onClose={() => setIsGmRulesModalOpen(false)} />}
-          {isTutorialModalOpen && <TutorialModal onClose={() => setIsTutorialModalOpen(false)} />}
-      </div>
+        {canOpenGmMenu && (
+             <GMMenu 
+                isOpen={isGmMenuOpen}
+                onClose={() => setIsGmMenuOpen(false)}
+                gameData={gameData}
+                dispatch={dispatch}
+                gameId={gameId}
+                onPreviewAsset={(asset) => setPreviewAsset(asset)}
+                onKickPlayer={handleKickPlayer}
+             />
+        )}
+        <audio ref={audioRef} />
+    </div>
   );
 };
 
