@@ -777,7 +777,7 @@ const App: React.FC = () => {
             </div>
         )}
         <header className="text-center mb-6">
-            <h1 className="text-4xl font-bold text-highlight tracking-wider">{gameData.title}</h1>
+            <h1 className="text-4xl font-bold text-highlight tracking-wider">Visual Novel Forge</h1>
             <p className="text-lg text-gray-300">A Collaborative Storytelling Game</p>
              <div className="absolute top-0 right-0 p-2 flex gap-2">
                 <button onClick={() => setIsChangelogModalOpen(true)} className="px-4 py-2 text-sm bg-purple-600 hover:bg-purple-700 rounded-md font-bold">What's New</button>
