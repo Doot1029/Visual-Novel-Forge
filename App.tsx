@@ -1,3 +1,4 @@
+
 import React, { useState, useReducer, useCallback, useEffect, useRef } from 'react';
 import { GameData, Player, GamePhase, Character, Asset, GameMode, ChatMessage } from './types';
 import { gameReducer, Action } from './state/reducer';
@@ -8,10 +9,39 @@ import GMMenu from './components/GMMenu';
 import GmRulesModal from './components/GmRulesModal';
 import TutorialModal from './components/TutorialModal';
 import LobbyChat from './components/LobbyChat';
-import ImagePreviewModal from './components/ImagePreviewModal';
 import * as network from './services/networkService';
 import { MAX_PLAYERS } from './constants';
 import { signInAnonymouslyIfNeeded } from './services/firebase';
+
+interface ImagePreviewModalProps {
+  asset: Asset | null;
+  onClose: () => void;
+}
+
+const ImagePreviewModal: React.FC<ImagePreviewModalProps> = ({ asset, onClose }) => {
+    if (!asset) return null;
+    return (
+        <div 
+            className="fixed inset-0 bg-primary bg-opacity-95 z-[100] flex items-center justify-center p-4"
+            aria-modal="true"
+            role="dialog"
+            onClick={onClose} 
+        >
+            <div 
+                className="bg-secondary rounded-lg shadow-2xl w-full max-w-4xl flex flex-col relative border-2 border-accent"
+                onClick={(e) => e.stopPropagation()}
+            >
+                <div className="flex justify-between items-center p-4 border-b border-accent">
+                    <h2 className="text-xl font-bold text-highlight">{asset.name}</h2>
+                    <button onClick={onClose} className="text-light hover:text-highlight text-3xl font-bold" aria-label="Close Image Preview">×</button>
+                </div>
+                <div className="p-4 flex-1 overflow-hidden flex items-center justify-center">
+                    <img src={asset.url} alt={asset.name} className="max-w-full max-h-[75vh] object-contain" />
+                </div>
+            </div>
+        </div>
+    );
+};
 
 
 const App: React.FC = () => {
@@ -423,7 +453,6 @@ const App: React.FC = () => {
             gameData={gameData}
             dispatch={onlineDispatch}
             currentPlayer={players[currentPlayerIndex]}
-            currentPlayerIndex={currentPlayerIndex}
             onEndTurn={handleEndTurn}
             gameMode={gameMode}
             myPlayerId={myPlayerId}
