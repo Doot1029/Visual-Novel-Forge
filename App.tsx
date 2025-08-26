@@ -12,6 +12,8 @@ import LobbyChat from './components/LobbyChat';
 import * as network from './services/networkService';
 import { MAX_PLAYERS } from './constants';
 import { signInAnonymouslyIfNeeded } from './services/firebase';
+import ChangelogModal from './components/ChangelogModal';
+import { getLatestVersionFromChangelog } from './changelogData';
 
 interface ImagePreviewModalProps {
   asset: Asset | null;
@@ -96,6 +98,8 @@ const App: React.FC = () => {
 
   const [appVersion, setAppVersion] = useState<string | null>(null);
   const [newVersionAvailable, setNewVersionAvailable] = useState(false);
+  const [lastSeenVersion, setLastSeenVersion] = useLocalStorage<string | null>('vns-last-seen-version', null);
+  const [isChangelogModalOpen, setIsChangelogModalOpen] = useState(false);
   
   const [fatalError, setFatalError] = useState<{ message: string; filename: string; lineno: number; colno: number } | null>(null);
 
@@ -128,10 +132,16 @@ const App: React.FC = () => {
           return;
         }
         const data = await response.json();
-        
-        if (appVersion === null) {
-          setAppVersion(data.version);
-        } else if (appVersion !== data.version) {
+        const currentVersion = data.version;
+
+        if (appVersion === null) { // First time loading the app in this session
+          setAppVersion(currentVersion);
+          // Check if this version is new for the user since their last visit
+          if (lastSeenVersion !== currentVersion) {
+              setIsChangelogModalOpen(true);
+              setLastSeenVersion(currentVersion);
+          }
+        } else if (appVersion !== currentVersion) { // A new version was deployed while app was open
           setNewVersionAvailable(true);
         }
       } catch (error) {
@@ -143,7 +153,7 @@ const App: React.FC = () => {
     const intervalId = setInterval(checkVersion, 60000); 
 
     return () => clearInterval(intervalId);
-  }, [appVersion]);
+  }, [appVersion, lastSeenVersion, setLastSeenVersion]);
 
   useEffect(() => {
     signInAnonymouslyIfNeeded()
@@ -745,6 +755,7 @@ const App: React.FC = () => {
             <h1 className="text-4xl font-bold text-highlight tracking-wider">{gameData.title}</h1>
             <p className="text-lg text-gray-300">A Collaborative Storytelling Game</p>
              <div className="absolute top-0 right-0 p-2 flex gap-2">
+                <button onClick={() => setIsChangelogModalOpen(true)} className="px-4 py-2 text-sm bg-purple-600 hover:bg-purple-700 rounded-md font-bold">What's New</button>
                 {canOpenGmMenu && <button onClick={() => setIsGmMenuOpen(true)} className="px-4 py-2 text-sm bg-accent hover:bg-opacity-75 rounded-md font-bold">GM Actions</button>}
                 {canLeaveGame && <button onClick={handleLeaveGame} className="px-4 py-2 text-sm bg-red-800 hover:bg-red-700 rounded-md font-bold">Leave Game</button>}
                 {gamePhase === 'play' && <button onClick={returnToSetup} className="px-4 py-2 text-sm bg-gray-700 hover:bg-gray-600 rounded-md font-bold">Return to Menu</button>}
@@ -759,6 +770,7 @@ const App: React.FC = () => {
         {isGmRulesModalOpen && <GmRulesModal rules={gameData.gmRules} onClose={() => setIsGmRulesModalOpen(false)} />}
         {isTutorialModalOpen && <TutorialModal onClose={() => setIsTutorialModalOpen(false)} />}
         {previewAsset && <ImagePreviewModal asset={previewAsset} onClose={() => setPreviewAsset(null)} />}
+        {isChangelogModalOpen && <ChangelogModal onClose={() => setIsChangelogModalOpen(false)} currentDisplayVersion={getLatestVersionFromChangelog()} />}
 
         {canOpenGmMenu && (
              <GMMenu 
