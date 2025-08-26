@@ -16,7 +16,9 @@ export type NetworkMessage =
   // Sent by a player to the GM to signal the end of their turn
   | { type: 'END_TURN'; payload: {} }
   // Sent by a player or GM during the setup/lobby phase
-  | { type: 'LOBBY_CHAT_MESSAGE'; payload: { message: ChatMessage } };
+  | { type: 'LOBBY_CHAT_MESSAGE'; payload: { message: ChatMessage } }
+  // Custom message sent from the network service to the client when the game is deleted
+  | { type: 'GAME_DELETED' };
 
 
 let currentGameId: string | null = null;
@@ -28,7 +30,9 @@ let stateListenerUnsubscribe: Unsubscribe | null = null;
 let musicListenerUnsubscribe: Unsubscribe | null = null;
 let actionsListenerUnsubscribe: Unsubscribe | null = null;
 let presenceListenerUnsubscribe: Unsubscribe | null = null;
+let typingListeners: Record<string, Unsubscribe> = {};
 let onDisconnectRef: firebase.database.OnDisconnect | null = null;
+const typingDisconnectRefs: Record<string, firebase.database.OnDisconnect> = {};
 
 
 /**
@@ -92,6 +96,12 @@ export const joinGameChannel = (gameId: string): void => {
 
     // Listen for main state updates from the GM
     const stateListener = (snapshot: firebase.database.DataSnapshot) => {
+        if (!snapshot.exists()) { // This is key for handling kicked players/ID changes
+            if (messageHandler) {
+                messageHandler({ type: 'GAME_DELETED' });
+            }
+            return;
+        }
         const stateSyncPayload = snapshot.val();
         if (stateSyncPayload) {
             mainState = stateSyncPayload;
@@ -104,8 +114,6 @@ export const joinGameChannel = (gameId: string): void => {
     // Listen for music updates separately
     const musicListener = (snapshot: firebase.database.DataSnapshot) => {
         musicData = snapshot.val();
-        // Only need to re-dispatch if mainState is already loaded.
-        // Otherwise, the state listener will handle the combined dispatch.
         if (mainState) {
             combineAndDispatch();
         }
@@ -206,6 +214,87 @@ export const onPresenceChange = (gameId: string, onLeave: (id: string, name: str
 };
 
 /**
+ * Sets the typing status for a user in a specific chat.
+ * @param gameId The game ID.
+ * @param chatType 'lobby' or 'in-game'.
+ * @param userId The user's unique ID.
+ * @param userName The user's name.
+ * @param isTyping Whether the user is typing or not.
+ */
+export const setTypingStatus = (gameId: string, chatType: 'lobby' | 'in-game', userId: string, userName: string, isTyping: boolean): void => {
+    const typingRef = db.ref(`games/${gameId}/typing/${chatType}/${userId}`);
+    if (isTyping) {
+        typingDisconnectRefs[chatType] = typingRef.onDisconnect();
+        typingDisconnectRefs[chatType].remove();
+        typingRef.set({ name: userName });
+    } else {
+        if (typingDisconnectRefs[chatType]) {
+            typingDisconnectRefs[chatType].cancel();
+            delete typingDisconnectRefs[chatType];
+        }
+        typingRef.remove();
+    }
+};
+
+/**
+ * Subscribes to typing status changes for a specific chat.
+ * @param gameId The game ID.
+ * @param chatType 'lobby' or 'in-game'.
+ * @param onTypingUsersChange Callback function with the list of typing users.
+ */
+export const onTypingStatusChange = (gameId: string, chatType: 'lobby' | 'in-game', onTypingUsersChange: (users: Record<string, string>) => void): void => {
+    const typingPathRef = db.ref(`games/${gameId}/typing/${chatType}`);
+    const typingUsers: Record<string, string> = {};
+
+    const update = () => onTypingUsersChange({ ...typingUsers });
+
+    const addedListener = (snapshot: firebase.database.DataSnapshot) => {
+        const userId = snapshot.key;
+        const userData = snapshot.val();
+        if (userId && userData?.name) {
+            typingUsers[userId] = userData.name;
+            update();
+        }
+    };
+
+    const removedListener = (snapshot: firebase.database.DataSnapshot) => {
+        const userId = snapshot.key;
+        if (userId) {
+            delete typingUsers[userId];
+            update();
+        }
+    };
+    
+    typingPathRef.on('child_added', addedListener);
+    typingPathRef.on('child_removed', removedListener);
+
+    typingListeners[chatType] = () => {
+        typingPathRef.off('child_added', addedListener);
+        typingPathRef.off('child_removed', removedListener);
+    };
+};
+
+
+/**
+ * Fetches the entire state of a game from Firebase. Used for GM rejoin.
+ * @param gameId The game ID to fetch.
+ */
+export const fetchGameState = async (gameId: string): Promise<any> => {
+    const snapshot = await db.ref(`games/${gameId}`).once('value');
+    return snapshot.val();
+}
+
+/**
+ * Creates a new game in Firebase with a predefined state. Used for regenerating game ID.
+ * @param gameId The new game ID.
+ * @param state The entire game state object to write.
+ */
+export const createGameWithState = (gameId: string, state: any): Promise<void> => {
+    return db.ref(`games/${gameId}`).set(state);
+}
+
+
+/**
  * Permanently deletes an entire game session from the database (GM only).
  * @param gameId The game ID to delete.
  */
@@ -219,26 +308,21 @@ export const deleteGame = (gameId: string): Promise<void> => {
  * Closes the connection and detaches all Firebase listeners.
  */
 export const closeChannel = (): void => {
-    if (stateListenerUnsubscribe) {
-        stateListenerUnsubscribe();
-        stateListenerUnsubscribe = null;
-    }
-    if (musicListenerUnsubscribe) {
-        musicListenerUnsubscribe();
-        musicListenerUnsubscribe = null;
-    }
-    if (actionsListenerUnsubscribe) {
-        actionsListenerUnsubscribe();
-        actionsListenerUnsubscribe = null;
-    }
-    if (presenceListenerUnsubscribe) {
-        presenceListenerUnsubscribe();
-        presenceListenerUnsubscribe = null;
-    }
-    if (onDisconnectRef) {
-        onDisconnectRef.cancel();
-        onDisconnectRef = null;
-    }
+    if (stateListenerUnsubscribe) stateListenerUnsubscribe();
+    if (musicListenerUnsubscribe) musicListenerUnsubscribe();
+    if (actionsListenerUnsubscribe) actionsListenerUnsubscribe();
+    if (presenceListenerUnsubscribe) presenceListenerUnsubscribe();
+    
+    Object.values(typingListeners).forEach(unsub => unsub());
+    typingListeners = {};
+
+    if (onDisconnectRef) onDisconnectRef.cancel();
+    Object.values(typingDisconnectRefs).forEach(ref => ref.cancel());
+    
+    stateListenerUnsubscribe = null;
+    musicListenerUnsubscribe = null;
+    actionsListenerUnsubscribe = null;
+    presenceListenerUnsubscribe = null;
+    onDisconnectRef = null;
     currentGameId = null;
-    // Don't reset the message handler, as it's set by React components
 };

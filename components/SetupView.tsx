@@ -21,6 +21,10 @@ interface SetupViewProps {
   onRejoinSession: (session: SavedSession) => void;
   onLeaveSession: (gameId: string) => void;
   onDeleteSession: (gameId: string) => void;
+  // Typing indicator props
+  typingUsers: Record<string, string>;
+  myPlayerId: string | null;
+  onTypingChange: (isTyping: boolean) => void;
 }
 
 interface GameDashboardProps {
@@ -64,7 +68,7 @@ const GameDashboard: React.FC<GameDashboardProps> = ({ sessions, onRejoin, onLea
 };
 
 
-const GameSetup: React.FC<Omit<SetupViewProps, 'onHostOnlineGame' | 'onJoinOnlineGame' | 'gameId' | 'onStartGameForEveryone' | 'onStartLocalGame' | 'onSendLobbyMessage' | 'savedSessions' | 'onRejoinSession' | 'onLeaveSession' | 'onDeleteSession'> & { onStartGame: (options?: { asPlayer: boolean, playerName: string }) => void, isOnline: boolean }> = ({ gameData, dispatch, onStartGame, isOnline, onPreviewAsset }) => {
+const GameSetup: React.FC<Omit<SetupViewProps, 'onHostOnlineGame' | 'onJoinOnlineGame' | 'gameId' | 'onStartGameForEveryone' | 'onStartLocalGame' | 'onSendLobbyMessage' | 'savedSessions' | 'onRejoinSession' | 'onLeaveSession' | 'onDeleteSession' | 'typingUsers' | 'myPlayerId' | 'onTypingChange'> & { onStartGame: (options?: { asPlayer: boolean, playerName: string }) => void, isOnline: boolean }> = ({ gameData, dispatch, onStartGame, isOnline, onPreviewAsset }) => {
     const [activeTab, setActiveTab] = useState('game');
     const [assetUrl, setAssetUrl] = useState('');
     const [assetName, setAssetName] = useState('');
@@ -445,6 +449,9 @@ const SetupView: React.FC<SetupViewProps> = (props) => {
                         onSendMessage={props.onSendLobbyMessage}
                         canSendMessage={true}
                         title="Lobby Chat"
+                        typingUsers={props.typingUsers}
+                        myPlayerId={props.myPlayerId}
+                        onTypingChange={props.onTypingChange}
                     />
                 </div>
             </div>

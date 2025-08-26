@@ -12,6 +12,7 @@ interface GMMenuProps {
   dispatch: React.Dispatch<Action>;
   gameId: string | null;
   onPreviewAsset: (asset: Asset) => void;
+  onKickPlayer: (playerId: string) => void;
 }
 
 // --- Types for Scene State for video export ---
@@ -133,7 +134,7 @@ async function drawSceneOnCanvas(
 }
 
 
-const GMMenu: React.FC<GMMenuProps> = ({ isOpen, onClose, gameData, dispatch, gameId, onPreviewAsset }) => {
+const GMMenu: React.FC<GMMenuProps> = ({ isOpen, onClose, gameData, dispatch, gameId, onPreviewAsset, onKickPlayer }) => {
     const [activeTab, setActiveTab] = useState('game');
     const [assetUrl, setAssetUrl] = useState('');
     const [assetName, setAssetName] = useState('');
@@ -157,26 +158,15 @@ const GMMenu: React.FC<GMMenuProps> = ({ isOpen, onClose, gameData, dispatch, ga
         }
     }
 
+    const handleKick = (player: Player) => {
+        if (window.confirm(`Are you sure you want to kick ${player.name}? This will remove them from the game.`)) {
+            onKickPlayer(player.id);
+        }
+    };
+
     const addPlayer = () => {
         const newPlayer: Player = { id: `p-${Date.now()}`, name: `Player ${players.length + 1}`, lastSeenLogIndex: 0, coins: 0 };
         dispatch({ type: 'ADD_PLAYER', payload: newPlayer });
-    }
-    const removePlayer = (id: string) => {
-        const playerToRemove = players.find(p => p.id === id);
-        const playerName = playerToRemove?.name || 'this player';
-        
-        if (window.confirm(`Are you sure you want to remove ${playerName}?`)) {
-            if (playerToRemove) {
-                dispatch({
-                    type: 'ADD_LOG_ENTRY',
-                    payload: {
-                        type: 'stat_change',
-                        text: `(${playerToRemove.name}) Has Left the Game!`
-                    }
-                });
-            }
-            dispatch({ type: 'REMOVE_PLAYER', payload: { id } });
-        }
     }
 
     const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>, type: AssetType) => {
@@ -640,7 +630,7 @@ const GMMenu: React.FC<GMMenuProps> = ({ isOpen, onClose, gameData, dispatch, ga
                                 <div key={player.id} className="flex items-center space-x-2 bg-accent p-2 rounded">
                                     <input type="text" value={player.name} onChange={e => handlePlayerUpdate(player.id, 'name', e.target.value)} className="p-2 bg-primary rounded-md flex-grow" placeholder="Player Name"/>
                                     <input type="number" value={player.coins || 0} onChange={e => handlePlayerUpdate(player.id, 'coins', parseInt(e.target.value) || 0)} className="w-24 p-2 bg-primary rounded-md" placeholder="Coins"/>
-                                    <button onClick={() => removePlayer(player.id)} className="text-red-500 hover:text-red-400 p-2 rounded-full font-bold">X</button>
+                                    <button onClick={() => handleKick(player)} className="px-3 py-2 bg-red-700 hover:bg-red-800 rounded-md text-sm font-bold">Kick</button>
                                 </div>
                             ))}
                             </div>

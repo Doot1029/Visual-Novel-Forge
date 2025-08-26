@@ -5,23 +5,47 @@ interface ChatViewProps {
     chatLog: ChatMessage[];
     onSendMessage: (messageText: string) => void;
     canSendMessage: boolean;
+    typingUsers: Record<string, string>;
+    myPlayerId: string | null;
+    onTypingChange: (isTyping: boolean) => void;
 }
 
-const ChatView: React.FC<ChatViewProps> = ({ chatLog, onSendMessage, canSendMessage }) => {
+const TypingIndicator: React.FC<{ typingUsers: Record<string, string>, myPlayerId: string | null }> = ({ typingUsers, myPlayerId }) => {
+    const activeTypers = Object.entries(typingUsers)
+        .filter(([id]) => id !== myPlayerId)
+        .map(([, name]) => name);
+
+    if (activeTypers.length === 0) {
+        return <div className="h-5" />;
+    }
+
+    let text;
+    if (activeTypers.length === 1) {
+        text = `${activeTypers[0]} is typing...`;
+    } else if (activeTypers.length === 2) {
+        text = `${activeTypers[0]} and ${activeTypers[1]} are typing...`;
+    } else {
+        text = `Several people are typing...`;
+    }
+
+    return <p className="h-5 px-3 text-xs italic text-light">{text}</p>;
+};
+
+
+const ChatView: React.FC<ChatViewProps> = ({ chatLog, onSendMessage, canSendMessage, typingUsers, myPlayerId, onTypingChange }) => {
     const [isExpanded, setIsExpanded] = useState(false);
     const [message, setMessage] = useState('');
     const [unreadCount, setUnreadCount] = useState(0);
     const chatBodyRef = useRef<HTMLDivElement>(null);
     const prevChatLogLength = useRef(chatLog ? chatLog.length : 0);
+    const typingTimeoutRef = useRef<number | null>(null);
 
-    // Effect to scroll to the bottom of the chat when new messages arrive or it's expanded
     useEffect(() => {
         if (isExpanded && chatBodyRef.current) {
             chatBodyRef.current.scrollTop = chatBodyRef.current.scrollHeight;
         }
     }, [chatLog, isExpanded]);
 
-    // Effect to count unread messages
     useEffect(() => {
         const currentLength = chatLog ? chatLog.length : 0;
         if (!isExpanded && currentLength > prevChatLogLength.current) {
@@ -31,18 +55,34 @@ const ChatView: React.FC<ChatViewProps> = ({ chatLog, onSendMessage, canSendMess
         prevChatLogLength.current = currentLength;
     }, [chatLog, isExpanded]);
 
+    const handleTyping = (e: React.ChangeEvent<HTMLInputElement>) => {
+        setMessage(e.target.value);
+        if (!canSendMessage) return;
+
+        onTypingChange(true);
+
+        if (typingTimeoutRef.current) {
+            clearTimeout(typingTimeoutRef.current);
+        }
+        typingTimeoutRef.current = window.setTimeout(() => {
+            onTypingChange(false);
+        }, 2000);
+    };
 
     const handleSend = (e: React.FormEvent) => {
         e.preventDefault();
         if (message.trim() && canSendMessage) {
             onSendMessage(message.trim());
             setMessage('');
+            onTypingChange(false);
+            if (typingTimeoutRef.current) {
+                clearTimeout(typingTimeoutRef.current);
+            }
         }
     };
     
     const handleToggleExpand = () => {
-        // If we are about to close the panel, mark messages as read.
-        if (isExpanded) {
+        if (!isExpanded) {
             setUnreadCount(0);
         }
         setIsExpanded(!isExpanded);
@@ -68,7 +108,7 @@ const ChatView: React.FC<ChatViewProps> = ({ chatLog, onSendMessage, canSendMess
                     <span>{isExpanded ? '▼' : '▲'}</span>
                 </button>
                 {isExpanded && (
-                    <div className="p-3 h-[calc(100%-3rem)] flex flex-col">
+                    <div className="p-3 pt-0 h-[calc(100%-3rem)] flex flex-col">
                         <div ref={chatBodyRef} className="flex-1 overflow-y-auto pr-2 space-y-2 mb-2 text-sm">
                             {(chatLog || []).map((chat, index) => (
                                 <React.Fragment key={`${chat.timestamp}-${index}`}>
@@ -89,12 +129,13 @@ const ChatView: React.FC<ChatViewProps> = ({ chatLog, onSendMessage, canSendMess
                                 <p className="text-center text-gray-400 italic">No messages yet.</p>
                             )}
                         </div>
+                        <TypingIndicator typingUsers={typingUsers} myPlayerId={myPlayerId} />
                         {canSendMessage ? (
-                            <form onSubmit={handleSend} className="flex gap-2">
+                            <form onSubmit={handleSend} className="flex gap-2 mt-1">
                                 <input 
                                     type="text"
                                     value={message}
-                                    onChange={(e) => setMessage(e.target.value)}
+                                    onChange={handleTyping}
                                     placeholder="Type a message..."
                                     className="flex-1 p-2 bg-primary rounded-md outline-none focus:ring-2 focus:ring-highlight"
                                 />

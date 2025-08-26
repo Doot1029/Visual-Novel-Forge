@@ -6,8 +6,8 @@ import ChatView from './ChatView';
 
 // --- Types for Scene State ---
 interface SceneState {
-  backgroundUrl: string | null;
-  cgUrl: string | null;
+  backgroundAssetId: string | null;
+  cgAssetId: string | null;
   sprites: { [characterId: string]: string | null }; // Value is assetId
   dialogue: { characterName: string; text: string } | null;
 }
@@ -18,8 +18,8 @@ const findAssetUrl = (assets: Asset[], id: string | null): string | null => {
 }
 
 const Visuals: React.FC<{ scene: SceneState; characters: Character[]; assets: Asset[]; onClick?: () => void; isPlayingBack?: boolean }> = ({ scene, characters, assets, onClick, isPlayingBack }) => {
-    const bgUrl = findAssetUrl(assets, scene.backgroundUrl);
-    const cgUrl = findAssetUrl(assets, scene.cgUrl);
+    const bgUrl = findAssetUrl(assets, scene.backgroundAssetId);
+    const cgUrl = findAssetUrl(assets, scene.cgAssetId);
 
     const activeSprites = Object.entries(scene.sprites)
       .map(([charId, assetId]) => {
@@ -293,16 +293,15 @@ const InputController: React.FC<{ dispatch: React.Dispatch<Action>, gameData: Ga
 
         let newLogEntry: StoryLogEntry | null = null;
         let sceneUpdate: Partial<SceneState> = {};
-        const assetUrl = findAssetUrl(gameData.assets, assetId);
 
         switch(type) {
             case 'background':
                 newLogEntry = { type: 'background_change', assetId: assetId };
-                sceneUpdate = { backgroundUrl: assetUrl };
+                sceneUpdate = { backgroundAssetId: assetId };
                 break;
             case 'cg':
                 newLogEntry = { type: 'cg_show', assetId: assetId };
-                sceneUpdate = { cgUrl: assetUrl };
+                sceneUpdate = { cgAssetId: assetId };
                 break;
             case 'sprite':
                 newLogEntry = { type: 'sprite_change', characterId: speakingCharacterId, assetId: assetId };
@@ -499,6 +498,8 @@ interface GameViewProps {
   onEndTurn: () => void;
   gameMode: GameMode;
   myPlayerId: string | null;
+  typingUsers: Record<string, string>;
+  onTypingChange: (isTyping: boolean) => void;
 }
 
 export const GameView: React.FC<GameViewProps> = ({
@@ -509,8 +510,10 @@ export const GameView: React.FC<GameViewProps> = ({
   onEndTurn,
   gameMode,
   myPlayerId,
+  typingUsers,
+  onTypingChange,
 }) => {
-    const [baseScene, setBaseScene] = useState<SceneState>({ backgroundUrl: null, cgUrl: null, sprites: {}, dialogue: null });
+    const [baseScene, setBaseScene] = useState<SceneState>({ backgroundAssetId: null, cgAssetId: null, sprites: {}, dialogue: null });
     const [stagedScene, setStagedScene] = useState<Partial<SceneState>>({});
     const [activeSideTab, setActiveSideTab] = useState<'history' | 'status'>('history');
     
@@ -522,8 +525,6 @@ export const GameView: React.FC<GameViewProps> = ({
     const [playbackLogIndex, setPlaybackLogIndex] = useState(0); 
     const [logsToPlay, setLogsToPlay] = useState<StoryLogEntry[]>([]);
     const turnStarted = useRef(false);
-    
-    const memoizedFindAssetUrl = useCallback((id: string | null) => findAssetUrl(gameData.assets, id), [gameData.assets]);
 
     const handleSceneChange = useCallback((change: Partial<SceneState>) => {
         setStagedScene(prev => {
@@ -537,12 +538,12 @@ export const GameView: React.FC<GameViewProps> = ({
     const reduceScene = useCallback((log: StoryLogEntry, currentScene: SceneState): SceneState => {
         const newScene: SceneState = { ...currentScene, sprites: {...currentScene.sprites} };
         switch (log.type) {
-            case 'background_change': newScene.backgroundUrl = memoizedFindAssetUrl(log.assetId); break;
-            case 'sprite_change': newScene.sprites[log.characterId] = memoizedFindAssetUrl(log.assetId); break;
-            case 'cg_show': newScene.cgUrl = memoizedFindAssetUrl(log.assetId); break;
+            case 'background_change': newScene.backgroundAssetId = log.assetId; break;
+            case 'sprite_change': newScene.sprites[log.characterId] = log.assetId; break;
+            case 'cg_show': newScene.cgAssetId = log.assetId; break;
         }
         return newScene;
-    }, [memoizedFindAssetUrl]);
+    }, []);
 
     useEffect(() => {
         turnStarted.current = false;
@@ -559,7 +560,7 @@ export const GameView: React.FC<GameViewProps> = ({
         
         const lastSeenIndex = playerForLog?.lastSeenLogIndex || 0;
 
-        let initialSceneState: SceneState = { backgroundUrl: null, cgUrl: null, sprites: {}, dialogue: null };
+        let initialSceneState: SceneState = { backgroundAssetId: null, cgAssetId: null, sprites: {}, dialogue: null };
         for(const log of gameData.storyLog.slice(0, lastSeenIndex)) {
             initialSceneState = reduceScene(log, initialSceneState);
         }
@@ -696,6 +697,9 @@ export const GameView: React.FC<GameViewProps> = ({
                 chatLog={gameData.chatLog}
                 onSendMessage={handleSendChatMessage}
                 canSendMessage={canSendMessage}
+                typingUsers={typingUsers}
+                myPlayerId={myPlayerId}
+                onTypingChange={onTypingChange}
             />
         </div>
     );

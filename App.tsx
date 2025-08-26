@@ -81,12 +81,15 @@ const App: React.FC = () => {
   const [sessionId] = useState(() => `session-${Date.now()}-${Math.random().toString(36).slice(2)}`);
   const connectionTimeoutRef = useRef<number | null>(null);
   const audioRef = useRef<HTMLAudioElement>(null);
+  const [isKicked, setIsKicked] = useState(false);
 
   const [isGmRulesModalOpen, setIsGmRulesModalOpen] = useState(false);
   const [isTutorialModalOpen, setIsTutorialModalOpen] = useState(false);
   const [hasSeenRules, setHasSeenRules] = useState(false);
   const [previewAsset, setPreviewAsset] = useState<Asset | null>(null);
   const { players } = gameData;
+  const [lobbyTypingUsers, setLobbyTypingUsers] = useState<Record<string, string>>({});
+  const [gameTypingUsers, setGameTypingUsers] = useState<Record<string, string>>({});
 
   const [savedSessions, setSavedSessions] = useLocalStorage<SavedSession[]>('vns-sessions', []);
 
@@ -103,6 +106,16 @@ const App: React.FC = () => {
 
     network.onMessage((message) => {
       if (message.type === 'PLAYER_JOIN_REQUEST') {
+          if (gameData.players.some(p => p.name.toLowerCase() === message.payload.name.toLowerCase())) {
+              const logAction: Action = { type: 'ADD_LOBBY_CHAT_MESSAGE', payload: {
+                  senderId: 'system',
+                  senderName: 'System',
+                  text: `'${message.payload.name}' tried to join, but the name is already in use. Join request rejected.`,
+                  timestamp: Date.now()
+              }};
+              dispatch(logAction);
+              return;
+          }
           const newPlayer: Player = { id: message.payload.id, name: message.payload.name, lastSeenLogIndex: 0, coins: 0 };
           dispatch({ type: 'ADD_PLAYER', payload: newPlayer });
           if (gamePhase === 'play') {
@@ -137,17 +150,14 @@ const App: React.FC = () => {
 
         const leavingPlayerIndex = gameData.players.findIndex(p => p.id === leavingPlayerId);
         dispatch({ type: 'REMOVE_PLAYER', payload: { id: leavingPlayerId } });
-        const newPlayerCount = gameData.players.length -1;
         
-        if (newPlayerCount > 0) {
-            if (leavingPlayerIndex < currentPlayerIndex) {
-                setCurrentPlayerIndex(prev => prev - 1);
-            } else {
-                setCurrentPlayerIndex(prev => prev % newPlayerCount);
-            }
-        } else {
-            setCurrentPlayerIndex(0);
-        }
+        // Use a functional update with the correct future player count.
+        setCurrentPlayerIndex(prev => {
+            const newPlayerCount = gameData.players.length - 1;
+            if (newPlayerCount <= 0) return 0;
+            if (leavingPlayerIndex < prev) return prev - 1;
+            return prev % newPlayerCount;
+        });
     });
 
   }, [gameMode, gameId, gameData.players, currentPlayerIndex, gamePhase]);
@@ -161,7 +171,7 @@ const App: React.FC = () => {
   }, [gameMode, gameData, currentPlayerIndex, gamePhase]);
 
   useEffect(() => {
-    if (gameMode !== 'online-player') return;
+    if (gameMode !== 'online-player' || !gameId) return;
 
     const handleMessage = (message: network.NetworkMessage) => {
       if (message.type === 'GAME_STATE_SYNC') {
@@ -172,21 +182,41 @@ const App: React.FC = () => {
 
         setConnectionStatus('connected');
         
-        const { gameData, currentPlayerIndex, gamePhase } = message.payload;
-        dispatch({ type: 'SET_GAME_DATA', payload: gameData });
-        setCurrentPlayerIndex(currentPlayerIndex || 0);
-        setGamePhase(gamePhase);
+        const { gameData: newGameData, currentPlayerIndex: newCurrentPlayerIndex, gamePhase: newGamePhase } = message.payload;
+        
+        // Check if I have been kicked
+        if (myPlayerId && !newGameData.players.some(p => p.id === myPlayerId)) {
+            setIsKicked(true);
+            network.closeChannel();
+            return;
+        }
+
+        dispatch({ type: 'SET_GAME_DATA', payload: newGameData });
+        setCurrentPlayerIndex(newCurrentPlayerIndex || 0);
+        setGamePhase(newGamePhase);
 
         const currentSession = savedSessions.find(s => s.gameId === gameId);
-        if (currentSession && currentSession.title !== gameData.title) {
-            setSavedSessions(prev => prev.map(s => s.gameId === gameId ? {...s, title: gameData.title} : s));
+        if (currentSession && currentSession.title !== newGameData.title) {
+            setSavedSessions(prev => prev.map(s => s.gameId === gameId ? {...s, title: newGameData.title} : s));
         }
+      } else if (message.type === 'GAME_DELETED') {
+          alert("You have been disconnected. The Game ID may have been changed by the GM, or the game was deleted.");
+          handleLeaveSession(gameId, true);
+          window.location.reload();
+          return;
       }
     };
     
     network.onMessage(handleMessage);
 
-  }, [gameMode, gameId, savedSessions, setSavedSessions]);
+  }, [gameMode, gameId, savedSessions, setSavedSessions, myPlayerId]);
+
+  useEffect(() => {
+      if (gameId && (gameMode === 'online-gm' || gameMode === 'online-player')) {
+          network.onTypingStatusChange(gameId, 'lobby', setLobbyTypingUsers);
+          network.onTypingStatusChange(gameId, 'in-game', setGameTypingUsers);
+      }
+  }, [gameId, gameMode]);
   
   useEffect(() => {
     if (gameMode === 'online-player' && gamePhase === 'play' && !hasSeenRules) {
@@ -229,25 +259,35 @@ const App: React.FC = () => {
     }
   };
 
+    const getMyPlayerInfo = useCallback(() => {
+        if (gameMode === 'online-gm' && !myPlayerId) { // GM is spectating
+            return { id: 'gm-host', name: 'Game Master' };
+        }
+        if (myPlayerId) {
+            const me = gameData.players.find(p => p.id === myPlayerId);
+            return me ? { id: me.id, name: me.name } : null;
+        }
+        return null;
+    }, [gameMode, myPlayerId, gameData.players]);
+
     const handleSendLobbyChatMessage = (messageText: string) => {
-      const senderPlayer = players.find(p => p.id === myPlayerId);
-      const senderName = (gameMode === 'online-gm' && !myPlayerId) ? 'Game Master' : senderPlayer?.name;
-      const senderId = myPlayerId || 'gm-host';
+      const me = getMyPlayerInfo();
+      if (!me) return;
 
-      if (!senderName) return;
-
-      const message: ChatMessage = {
-          senderId: senderId,
-          senderName: senderName,
-          text: messageText,
-          timestamp: Date.now()
-      };
+      const message: ChatMessage = { senderId: me.id, senderName: me.name, text: messageText, timestamp: Date.now() };
       
       if (gameMode === 'online-player') {
           network.sendMessage({ type: 'LOBBY_CHAT_MESSAGE', payload: { message } });
       } else if (gameMode === 'online-gm') {
           dispatch({ type: 'ADD_LOBBY_CHAT_MESSAGE', payload: message });
       }
+    };
+
+  const handleTypingChange = (chatType: 'lobby' | 'in-game') => (isTyping: boolean) => {
+      if (!gameId) return;
+      const me = getMyPlayerInfo();
+      if (!me) return;
+      network.setTypingStatus(gameId, chatType, me.id, me.name, isTyping);
   };
 
   const startLocalGame = async () => {
@@ -314,7 +354,6 @@ const App: React.FC = () => {
     connectionTimeoutRef.current = window.setTimeout(() => {
         setConnectionStatus('failed');
         network.removePresence(id, playerId);
-        // Do not remove session from dashboard, user might want to retry
     }, 20000);
   };
 
@@ -418,34 +457,98 @@ const App: React.FC = () => {
       }
   };
 
-    const handleRejoinSession = (session: SavedSession) => {
+    const handleRejoinSession = async (session: SavedSession) => {
         if (session.role === 'gm') {
-            alert("Rejoining as GM is not yet supported. Please start a new game or have a player invite you.");
-            return;
-        }
-        if (session.role === 'player' && session.myPlayerId && session.myPlayerName) {
+            setIsLoading(true);
+            try {
+                const remoteState = await network.fetchGameState(session.gameId);
+                if (!remoteState) {
+                    alert("This game session could not be found. It may have been deleted.");
+                    handleDeleteSession(session.gameId, true);
+                    return;
+                }
+                
+                const { gameData: remoteGameData, currentPlayerIndex: remotePlayerIndex, gamePhase: remoteGamePhase } = remoteState.state;
+                
+                // Use a functional update to ensure we have the latest gameData from remote
+                const finalGameData = { ...remoteGameData, lobbyMusicUrl: remoteState.music?.lobbyMusicUrl || null };
+                
+                dispatch({ type: 'SET_GAME_DATA', payload: finalGameData });
+                setCurrentPlayerIndex(remotePlayerIndex || 0);
+                setGamePhase(remoteGamePhase);
+
+                setGameId(session.gameId);
+                setGameMode('online-gm');
+                setMyPlayerId(session.myPlayerId || null);
+
+                network.createGameChannel(session.gameId);
+                if (session.myPlayerId && session.myPlayerName) {
+                    network.setupPresence(session.gameId, session.myPlayerId, session.myPlayerName);
+                }
+                
+                setSavedSessions(prev => prev.map(s => s.gameId === session.gameId ? {...s, lastAccessed: Date.now()} : s));
+
+            } catch (error) {
+                alert(`Error rejoining game: ${error instanceof Error ? error.message : "An unknown error occurred."}`);
+            } finally {
+                setIsLoading(false);
+            }
+
+        } else if (session.role === 'player' && session.myPlayerId && session.myPlayerName) {
             joinOnlineGameAsPlayer(session.gameId, session.myPlayerName);
         }
     };
 
-    const handleLeaveSession = (gameIdToRemove: string) => {
-        if (window.confirm("Are you sure you want to leave this game? This will only remove it from your dashboard.")) {
+    const handleLeaveSession = (gameIdToRemove: string, silent = false) => {
+        const performLeave = () => {
             setSavedSessions(prev => prev.filter(s => s.gameId !== gameIdToRemove));
+        };
+        if (silent) {
+            performLeave();
+        } else if (window.confirm("Are you sure you want to leave this game? This will only remove it from your dashboard.")) {
+            performLeave();
         }
     };
     
-    const handleDeleteSession = (gameIdToDelete: string) => {
-        if (window.confirm("Are you the Game Master. Are you sure you want to PERMANENTLY delete this game for ALL players? This cannot be undone.")) {
+    const handleDeleteSession = (gameIdToDelete: string, silent = false) => {
+        const performDelete = () => {
             network.deleteGame(gameIdToDelete)
                 .then(() => {
-                    alert(`Game ${gameIdToDelete} has been deleted.`);
+                    if (!silent) alert(`Game ${gameIdToDelete} has been deleted.`);
                     setSavedSessions(prev => prev.filter(s => s.gameId !== gameIdToDelete));
                 })
                 .catch(error => {
-                    alert(`Failed to delete game: ${error.message}`);
+                    if (!silent) alert(`Failed to delete game: ${error.message}`);
                     console.error("Failed to delete game:", error);
                 });
+        };
+
+        if (silent) {
+            performDelete();
+        } else if (window.confirm("Are you the Game Master. Are you sure you want to PERMANENTLY delete this game for ALL players? This cannot be undone.")) {
+            performDelete();
         }
+    };
+
+    const handleKickPlayer = (playerIdToKick: string) => {
+        const playerToKick = gameData.players.find(p => p.id === playerIdToKick);
+        if (!playerToKick || gameMode !== 'online-gm') return;
+        
+        dispatch({
+            type: 'ADD_LOG_ENTRY',
+            payload: { type: 'stat_change', text: `${playerToKick.name} was kicked by the GM.` }
+        });
+        
+        const kickedPlayerIndex = gameData.players.findIndex(p => p.id === playerIdToKick);
+
+        dispatch({ type: 'REMOVE_PLAYER', payload: { id: playerIdToKick } });
+        
+        setCurrentPlayerIndex(prev => {
+            const newPlayerCount = gameData.players.length - 1;
+            if (newPlayerCount <= 0) return 0;
+            if (kickedPlayerIndex < prev) return prev - 1;
+            return prev % newPlayerCount;
+        });
     };
 
   const returnToSetup = () => {
@@ -453,6 +556,18 @@ const App: React.FC = () => {
   }
 
   const renderGamePhase = () => {
+    if (isKicked) {
+        return (
+            <div className="bg-secondary p-8 rounded-lg text-center max-w-lg mx-auto">
+                 <h2 className="text-3xl font-bold text-red-400 mb-4">You have been kicked.</h2>
+                 <p className="mb-8 text-lg">You were removed from the game by the host.</p>
+                 <button onClick={() => window.location.reload()} className="px-6 py-3 bg-highlight text-white text-lg font-bold rounded-lg hover:bg-opacity-80">
+                  Return to Menu
+                </button>
+            </div>
+        );
+    }
+    
     if (gameMode === 'online-player' && connectionStatus === 'connecting') {
         return (
             <div className="bg-secondary p-6 rounded-lg text-center">
@@ -471,7 +586,7 @@ const App: React.FC = () => {
                 </svg>
                 <h2 className="text-3xl font-bold text-red-400 mb-4">Connection Failed</h2>
                 <p className="mb-4 text-lg">Could not connect to the game with ID: <span className="font-mono bg-primary px-2 py-1 rounded">{gameId}</span></p>
-                <p className="text-gray-300 mb-8">Please check the Game ID and your internet connection, and ensure the host is waiting for players in the lobby.</p>
+                <p className="text-gray-300 mb-8">Please check the Game ID and your internet connection, and ensure the host is waiting for players in the lobby. Your chosen name might also be taken.</p>
                 <button onClick={() => window.location.reload()} className="px-6 py-3 bg-highlight text-white text-lg font-bold rounded-lg hover:bg-opacity-80 transition-transform hover:scale-105">
                   Back to Menu
                 </button>
@@ -497,6 +612,9 @@ const App: React.FC = () => {
                         onSendMessage={handleSendLobbyChatMessage}
                         canSendMessage={true}
                         title="Lobby Chat"
+                        typingUsers={lobbyTypingUsers}
+                        myPlayerId={myPlayerId}
+                        onTypingChange={handleTypingChange('lobby')}
                     />
                 </div>
             </div>
@@ -520,6 +638,9 @@ const App: React.FC = () => {
             onRejoinSession={handleRejoinSession}
             onLeaveSession={handleLeaveSession}
             onDeleteSession={handleDeleteSession}
+            typingUsers={lobbyTypingUsers}
+            myPlayerId={myPlayerId}
+            onTypingChange={handleTypingChange('lobby')}
           />
         );
       case 'play':
@@ -542,6 +663,8 @@ const App: React.FC = () => {
             onEndTurn={handleEndTurn}
             gameMode={gameMode}
             myPlayerId={myPlayerId}
+            typingUsers={gameTypingUsers}
+            onTypingChange={handleTypingChange('in-game')}
           />
         );
     }
@@ -569,7 +692,7 @@ const App: React.FC = () => {
             <div className="fixed inset-0 bg-primary bg-opacity-90 flex items-center justify-center z-50">
                 <div className="text-center">
                     <div className="animate-spin rounded-full h-16 w-16 border-t-2 border-b-2 border-highlight mx-auto mb-4"></div>
-                    <h2 className="text-2xl font-bold">Loading Assets...</h2>
+                    <h2 className="text-2xl font-bold">Loading...</h2>
                 </div>
             </div>
           )}
@@ -613,6 +736,7 @@ const App: React.FC = () => {
                     dispatch={dispatch}
                     gameId={gameId}
                     onPreviewAsset={setPreviewAsset}
+                    onKickPlayer={handleKickPlayer}
                 />
               )}
           </div>
