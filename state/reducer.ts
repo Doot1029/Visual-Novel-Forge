@@ -1,5 +1,5 @@
 import { GameData, StoryLogEntry, Asset, Character, Quest, ChatMessage, Player, Choice } from '../types';
-import { MAX_PLAYERS } from '../constants';
+import { MAX_PLAYERS, INITIAL_GAME_DATA } from '../constants';
 
 export type Action =
   | { type: 'UPDATE_TITLE', payload: string }
@@ -284,8 +284,8 @@ export const gameReducer = (state: GameData, action: Action): GameData => {
     case 'SET_GAME_DATA': {
         const payload = action.payload;
         return {
-            title: payload.title || 'Untitled Adventure',
-            gmRules: payload.gmRules,
+            title: payload.title || INITIAL_GAME_DATA.title,
+            gmRules: payload.gmRules ?? INITIAL_GAME_DATA.gmRules,
             assets: payload.assets || [],
             characters: payload.characters || [],
             storyLog: payload.storyLog || [],

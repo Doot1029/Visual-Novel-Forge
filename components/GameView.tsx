@@ -93,13 +93,13 @@ const HistoryLogContent: React.FC<{ gameData: GameData }> = ({ gameData }) => {
                         );
                         break;
                     case 'dice_roll':
-                        content = <p className="text-gray-400 italic">{getCharacter(log.characterId)?.name} rolled a d{log.sides} and got: <span className="font-bold text-white">{log.result}</span></p>
+                        content = <p className="text-gray-400 italic">{getCharacter(log.characterId)?.name} rolled a d{log.sides} and got: <span className="font-bold text-white">{log.result}</span></p>;
                         break;
                     case 'quest_status':
-                        content = <p className="text-green-400 font-semibold">{log.text}</p>
+                        content = <p className="text-green-400 font-semibold">{log.text}</p>;
                         break;
                     case 'stat_change':
-                        content = <p className="text-teal-400 italic">{log.text}</p>
+                        content = <p className="text-teal-400 italic">{log.text}</p>;
                         break;
                     default:
                         content = null;
