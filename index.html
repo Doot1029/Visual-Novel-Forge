@@ -821,6 +821,17 @@ const PremadeAssetBrowser = ({ onAddAsset, onAddAssetCollection, onPreviewAsset 
 
   return (
     <div>
+        <p className="text-xs text-gray-400 mb-2 text-right">
+            Want your assets featured?{' '}
+            <a 
+                href="https://discord.gg/fg45Qf7HV5" 
+                target="_blank" 
+                rel="noopener noreferrer"
+                className="text-highlight hover:underline"
+            >
+                Join our Discord!
+            </a>
+        </p>
       <div className="flex border-b border-accent mb-2">
         <button onClick={() => setCategory('backgrounds')} className={`px-3 py-1 text-sm ${category === 'backgrounds' ? 'text-highlight border-b-2 border-highlight' : 'text-light'}`}>Backgrounds</button>
         <button onClick={() => setCategory('characterSprites')} className={`px-3 py-1 text-sm ${category === 'characterSprites' ? 'text-highlight border-b-2 border-highlight' : 'text-light'}`}>Sprite Collections</button>
@@ -1502,6 +1513,17 @@ const GameSetup = ({ gameData, dispatch, onStartGame, isOnline, onPreviewAsset }
                      <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-4">
                         {gameData.assets.map(asset => (
                             <div key={asset.id} className="bg-accent p-2 rounded-lg relative">
+                                <button
+                                    onClick={() => {
+                                        if (window.confirm('Are you sure you want to delete this asset? This will also unassign it from any characters.')) {
+                                            dispatch({ type: 'DELETE_ASSET', payload: { id: asset.id } });
+                                        }
+                                    }}
+                                    className="absolute top-1 right-1 bg-red-600 text-white rounded-full w-5 h-5 flex items-center justify-center text-xs font-bold z-10 hover:bg-red-500"
+                                    aria-label={`Delete ${asset.name}`}
+                                >
+                                    &times;
+                                </button>
                                 <img src={asset.url} alt={asset.name} className="w-full h-32 object-cover rounded-md mb-2 cursor-pointer" onClick={() => onPreviewAsset(asset)} />
                                 <p className="text-sm truncate" title={asset.name}>{asset.name}</p>
                                 <p className="text-xs text-gray-400 capitalize">{asset.type.replace('Sprite', ' Sprite')}</p>
@@ -1637,6 +1659,17 @@ const SetupView = (props) => {
                                 Join Online Game
                             </button>
                          </div>
+                         <p className="mt-8 text-gray-400">
+                            Want to see your own assets in the library?{' '}
+                            <a 
+                                href="https://discord.gg/fg45Qf7HV5" 
+                                target="_blank" 
+                                rel="noopener noreferrer"
+                                className="text-highlight hover:underline"
+                            >
+                                Join our Discord!
+                            </a>
+                         </p>
                          <GameDashboard 
                             sessions={props.savedSessions}
                             onRejoin={props.onRejoinSession}
@@ -1737,10 +1770,10 @@ const HistoryLogContent = ({ gameData }) => {
                         content = <p className="text-gray-400 italic">{getCharacter(log.characterId)?.name} rolled a d{log.sides} and got: <span className="font-bold text-white">{log.result}</span></p>
                         break;
                     case 'quest_status':
-                        content = <p className="text-green-400 font-semibold">{log.text}</p>
+                        content = <p className="text-green-400 font-semibold">{log.text}</p>;
                         break;
                     case 'stat_change':
-                        content = <p className="text-teal-400 italic">{log.text}</p>
+                        content = <p className="text-teal-400 italic">{log.text}</p>;
                         break;
                     default:
                         content = null;
@@ -2907,6 +2940,17 @@ const GMMenu = ({ isOpen, onClose, gameData, dispatch, gameId, onPreviewAsset })
                             <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-4">
                                 {gameData.assets.map(asset => (
                                     <div key={asset.id} className="bg-accent p-2 rounded-lg relative">
+                                        <button
+                                            onClick={() => {
+                                                if (window.confirm('Are you sure you want to delete this asset? This will also unassign it from any characters.')) {
+                                                    dispatch({ type: 'DELETE_ASSET', payload: { id: asset.id } });
+                                                }
+                                            }}
+                                            className="absolute top-1 right-1 bg-red-600 text-white rounded-full w-5 h-5 flex items-center justify-center text-xs font-bold z-10 hover:bg-red-500"
+                                            aria-label={`Delete ${asset.name}`}
+                                        >
+                                            &times;
+                                        </button>
                                         <img src={asset.url} alt={asset.name} className="w-full h-32 object-cover rounded-md mb-2 cursor-pointer" onClick={() => onPreviewAsset(asset)} />
                                         <p className="text-sm truncate" title={asset.name}>{asset.name}</p>
                                         <p className="text-xs text-gray-400 capitalize">{asset.type.replace('Sprite', ' Sprite')}</p>
