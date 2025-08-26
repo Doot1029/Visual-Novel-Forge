@@ -368,6 +368,17 @@ const GameSetup: React.FC<Omit<SetupViewProps, 'onHostOnlineGame' | 'onJoinOnlin
                      <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-4">
                         {gameData.assets.map(asset => (
                             <div key={asset.id} className="bg-accent p-2 rounded-lg relative">
+                                <button
+                                    onClick={() => {
+                                        if (window.confirm('Are you sure you want to delete this asset? This will also unassign it from any characters.')) {
+                                            dispatch({ type: 'DELETE_ASSET', payload: { id: asset.id } });
+                                        }
+                                    }}
+                                    className="absolute top-1 right-1 bg-red-600 text-white rounded-full w-5 h-5 flex items-center justify-center text-xs font-bold z-10 hover:bg-red-500"
+                                    aria-label={`Delete ${asset.name}`}
+                                >
+                                    &times;
+                                </button>
                                 <img src={asset.url} alt={asset.name} className="w-full h-32 object-cover rounded-md mb-2 cursor-pointer" onClick={() => onPreviewAsset(asset)} />
                                 <p className="text-sm truncate" title={asset.name}>{asset.name}</p>
                                 <p className="text-xs text-gray-400 capitalize">{asset.type.replace('Sprite', ' Sprite')}</p>

@@ -75,8 +75,8 @@ const LobbyChat: React.FC<LobbyChatProps> = ({ chatLog, onSendMessage, canSendMe
             <div ref={chatBodyRef} className="flex-1 overflow-y-auto pr-2 space-y-2 mb-2 text-sm bg-primary p-2 rounded-md">
                 {(chatLog || []).map((chat, index) => (
                     <div key={`${chat.timestamp}-${index}`}>
-                        <span className="font-bold text-blue-400">{chat.senderName}: </span>
-                        <span>{chat.text}</span>
+                        <span className={`font-bold ${chat.senderId === 'system' ? 'text-yellow-400' : 'text-blue-400'}`}>{chat.senderName}: </span>
+                        <span className={chat.senderId === 'system' ? 'italic text-gray-400' : ''}>{chat.text}</span>
                     </div>
                 ))}
                 {(!chatLog || chatLog.length === 0) && (

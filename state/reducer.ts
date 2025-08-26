@@ -283,6 +283,8 @@ export const gameReducer = (state: GameData, action: Action): GameData => {
     }
     case 'SET_GAME_DATA': {
         const payload = action.payload;
+        // This action replaces the entire game state, useful for rejoining or loading a game.
+        // It ensures all properties are present and correctly typed, falling back to defaults only if missing.
         return {
             title: payload.title || INITIAL_GAME_DATA.title,
             gmRules: payload.gmRules ?? INITIAL_GAME_DATA.gmRules,
