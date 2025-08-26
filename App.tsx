@@ -126,7 +126,7 @@ const App: React.FC = () => {
   useEffect(() => {
     const checkVersion = async () => {
       try {
-        const response = await fetch('./version.json?cache_bust=' + new Date().getTime());
+        const response = await fetch('/version.json?cache_bust=' + new Date().getTime());
         if (!response.ok) {
           console.warn('Could not fetch version.json');
           return;
@@ -726,7 +726,7 @@ const App: React.FC = () => {
                     <div className="p-6 overflow-y-auto max-h-[60vh]">
                         <p className="text-light mb-4">The application has encountered a problem and cannot continue. Please refresh the page. The technical details below can help with debugging.</p>
                         <pre className="bg-primary p-4 rounded-md text-sm text-red-300 whitespace-pre-wrap font-mono">
-                            {`Message: ${fatalError.message}\nFile: ${fatalError.filename.split('/').pop()}\nLine: ${fatalError.lineno}, Column: ${fatalError.colno}`}
+                            {`Message: ${fatalError.message}\nFile: ${fatalError.filename}\nLine: ${fatalError.lineno}, Column: ${fatalError.colno}`}
                         </pre>
                     </div>
                     <div className="p-4 border-t border-accent text-right">
