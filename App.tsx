@@ -96,9 +96,6 @@ const App: React.FC = () => {
 
   const [savedSessions, setSavedSessions] = useLocalStorage<SavedSession[]>('vns-sessions', []);
 
-  const [appVersion, setAppVersion] = useState<string | null>(null);
-  const [newVersionAvailable, setNewVersionAvailable] = useState(false);
-  const [lastSeenVersion, setLastSeenVersion] = useLocalStorage<string | null>('vns-last-seen-version', null);
   const [isChangelogModalOpen, setIsChangelogModalOpen] = useState(false);
   
   const [fatalError, setFatalError] = useState<{ message: string; filename: string; lineno: number; colno: number } | null>(null);
@@ -147,38 +144,6 @@ const App: React.FC = () => {
         window.removeEventListener('unhandledrejection', handleRejection);
     };
   }, []);
-
-  useEffect(() => {
-    const checkVersion = async () => {
-      try {
-        const response = await fetch('/version.json?cache_bust=' + new Date().getTime());
-        if (!response.ok) {
-          console.warn('Could not fetch version.json');
-          return;
-        }
-        const data = await response.json();
-        const currentVersion = data.version;
-
-        if (appVersion === null) { // First time loading the app in this session
-          setAppVersion(currentVersion);
-          // Check if this version is new for the user since their last visit
-          if (lastSeenVersion !== currentVersion) {
-              setIsChangelogModalOpen(true);
-              setLastSeenVersion(currentVersion);
-          }
-        } else if (appVersion !== currentVersion) { // A new version was deployed while app was open
-          setNewVersionAvailable(true);
-        }
-      } catch (error) {
-        console.error('Error checking for new version:', error);
-      }
-    };
-
-    checkVersion();
-    const intervalId = setInterval(checkVersion, 60000); 
-
-    return () => clearInterval(intervalId);
-  }, [appVersion, lastSeenVersion, setLastSeenVersion]);
 
   useEffect(() => {
     signInAnonymouslyIfNeeded()
@@ -763,17 +728,6 @@ const App: React.FC = () => {
                         </button>
                     </div>
                 </div>
-            </div>
-        )}
-        {newVersionAvailable && (
-            <div className="fixed top-4 left-1/2 -translate-x-1/2 bg-highlight text-white p-3 rounded-lg text-center z-[200] shadow-lg flex items-center justify-center gap-4 animate-pulse">
-                <p className="font-semibold">A new version is available!</p>
-                <button 
-                  onClick={() => window.location.reload()}
-                  className="px-4 py-1 bg-white text-highlight font-bold rounded-lg hover:bg-opacity-90"
-                >
-                  Refresh Now
-                </button>
             </div>
         )}
         <header className="text-center mb-6">
